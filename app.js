@@ -38,6 +38,7 @@ const statsRangeLabel = document.getElementById("statsRangeLabel");
 const filteredSummary = document.getElementById("filteredSummary");
 const submitButton = form.querySelector('[type="submit"]');
 const menuToggle = document.getElementById("menuToggle");
+const currentPageLabel = document.getElementById("currentPageLabel");
 const pageMenu = document.getElementById("pageMenu");
 const pageButtons = Array.from(document.querySelectorAll("[data-page-target]"));
 const pageViews = Array.from(document.querySelectorAll("[data-page]"));
@@ -925,6 +926,13 @@ function render() {
 
 function setActivePage(pageName, { updateHash = true } = {}) {
   const validPage = ["entry", "records", "overview", "analysis", "stats"].includes(pageName) ? pageName : "entry";
+  const pageLabels = {
+    entry: "01　新增紀錄",
+    records: "02　紀錄明細",
+    overview: "03　總覽",
+    analysis: "04　比分分析",
+    stats: "05　結算總表",
+  };
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
   });
@@ -933,6 +941,8 @@ function setActivePage(pageName, { updateHash = true } = {}) {
   });
   pageMenu.hidden = true;
   menuToggle.setAttribute("aria-expanded", "false");
+  currentPageLabel.textContent = pageLabels[validPage];
+  menuToggle.setAttribute("aria-label", `開啟頁面選單，目前位於${pageLabels[validPage]}`);
   if (updateHash) history.replaceState(null, "", validPage === "entry" ? "#entry" : `#${validPage}`);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
