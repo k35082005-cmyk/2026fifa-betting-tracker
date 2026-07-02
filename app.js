@@ -52,6 +52,26 @@ let firestore = null;
 let stopFirestoreSync = null;
 
 const LEGACY_CREATED_DATE = "2026-07-02";
+const LEGACY_FIXTURES = [
+  {
+    key: "spain-austria",
+    label: "西班牙 VS 奧地利",
+    matchDate: "2026-07-03",
+    teams: [["西班牙", "spain"], ["奧地利", "奥地利", "austria"]],
+  },
+  {
+    key: "portugal-croatia",
+    label: "葡萄牙 VS 克羅埃西亞",
+    matchDate: "2026-07-03",
+    teams: [["葡萄牙", "portugal"], ["克羅埃西亞", "克罗地亚", "croatia"]],
+  },
+  {
+    key: "switzerland-algeria",
+    label: "瑞士 VS 阿爾及利亞",
+    matchDate: "2026-07-03",
+    teams: [["瑞士", "switzerland"], ["阿爾及利亞", "阿尔及利亚", "algeria"]],
+  },
+];
 
 if (migrateLegacyRecordDates()) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
@@ -205,7 +225,19 @@ function normalizeScore(score) {
   return parseScore(text) || text || "未填寫";
 }
 
+function getLegacyFixture(match) {
+  const compact = String(match || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-Hant")
+    .replace(/[\p{Separator}\p{Punctuation}\p{Format}\p{Mark}\p{Control}]/gu, "");
+  return LEGACY_FIXTURES.find((fixture) =>
+    fixture.teams.every((aliases) => aliases.some((alias) => compact.includes(alias.toLocaleLowerCase("zh-Hant"))))
+  );
+}
+
 function normalizeMatchKey(match) {
+  const legacyFixture = getLegacyFixture(match);
+  if (legacyFixture) return legacyFixture.key;
   const text = String(match || "未填寫").normalize("NFKC").replace(/[\p{Format}\u200B-\u200D\uFEFF]/gu, "").trim();
   const teams = text.split(/\s*(?:vs\.?|對)\s*/i);
   return teams
@@ -221,13 +253,22 @@ function isCurrentUserAdmin() {
 function migrateLegacyRecordDates() {
   let changed = false;
   records = records.map((record) => {
-    if (record.createdDate && record.matchDate) return record;
-    changed = true;
-    return {
+    const legacyFixture = getLegacyFixture(record.match);
+    const migrated = {
       ...record,
       createdDate: record.createdDate || LEGACY_CREATED_DATE,
-      matchDate: record.matchDate || record.date || "",
+      match: legacyFixture?.label || record.match,
+      matchDate: legacyFixture?.matchDate || record.matchDate || record.date || "",
+      date: legacyFixture?.matchDate || record.date,
     };
+    if (
+      migrated.createdDate === record.createdDate
+      && migrated.match === record.match
+      && migrated.matchDate === record.matchDate
+      && migrated.date === record.date
+    ) return record;
+    changed = true;
+    return migrated;
   });
   return changed;
 }
