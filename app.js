@@ -2,8 +2,7 @@ const STORAGE_KEY = 'fifa-bet-tracker-v1';
 
 const form = document.getElementById('betForm');
 const authStatus = document.getElementById('authStatus');
-const loginBtn = document.getElementById('loginBtn');
-const registerBtn = document.getElementById('registerBtn');
+const googleLoginBtn = document.getElementById('googleLoginBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const recordsBody = document.getElementById('recordsBody');
 const summaryStats = document.getElementById('summaryStats');
@@ -150,12 +149,15 @@ function renderStatsPanels() {
   memberStats.innerHTML = memberList.length
     ? memberList
         .map(
-          (entry) => `
-            <div class="stat-row">
-              <span>${entry.member}</span>
-              <strong>${entry.count} 筆 · ${formatCurrency(entry.amount)}</strong>
-            </div>
-          `
+          (entry) => {
+            const net = entry.amount * 0.9;
+            return `
+              <div class="stat-row">
+                <span>${entry.member}</span>
+                <strong>${entry.count} 筆 · ${formatCurrency(entry.amount)} · 淨值 ${formatCurrency(net)}</strong>
+              </div>
+            `;
+          }
         )
         .join('')
     : '<p class="empty">目前還沒有任何投注資料。</p>';
@@ -214,15 +216,13 @@ function renderRecords() {
 function updateAuthUI() {
   if (!auth?.currentUser) {
     authStatus.textContent = '尚未登入';
-    loginBtn.style.display = 'inline-flex';
-    registerBtn.style.display = 'inline-flex';
+    googleLoginBtn.style.display = 'inline-flex';
     logoutBtn.style.display = 'none';
     return;
   }
 
-  authStatus.textContent = `已登入：${auth.currentUser.email || auth.currentUser.uid}`;
-  loginBtn.style.display = 'none';
-  registerBtn.style.display = 'none';
+  authStatus.textContent = `已登入：${auth.currentUser.displayName || auth.currentUser.email || auth.currentUser.uid}`;
+  googleLoginBtn.style.display = 'none';
   logoutBtn.style.display = 'inline-flex';
 }
 
@@ -315,31 +315,14 @@ exportBtn.addEventListener('click', () => {
 
 document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
 
-loginBtn.addEventListener('click', async () => {
-  const email = window.prompt('請輸入登入 Email');
-  const password = window.prompt('請輸入登入密碼');
-  if (!email || !password) return;
-
+googleLoginBtn.addEventListener('click', async () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
   try {
-    await auth.signInWithEmailAndPassword(email, password);
+    await auth.signInWithPopup(provider);
     updateAuthUI();
     syncFromFirestore();
   } catch (error) {
-    alert('登入失敗：' + error.message);
-  }
-});
-
-registerBtn.addEventListener('click', async () => {
-  const email = window.prompt('請輸入註冊 Email');
-  const password = window.prompt('請輸入註冊密碼');
-  if (!email || !password) return;
-
-  try {
-    await auth.createUserWithEmailAndPassword(email, password);
-    updateAuthUI();
-    syncFromFirestore();
-  } catch (error) {
-    alert('註冊失敗：' + error.message);
+    alert('Google 登入失敗：' + error.message);
   }
 });
 
