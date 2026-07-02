@@ -1,13 +1,21 @@
 const STORAGE_KEY = "fifa-bet-tracker-v1";
 const SHARED_DOCUMENT = "shared";
+const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
 
 const form = document.getElementById("betForm");
 const authStatus = document.getElementById("authStatus");
 const syncHint = document.getElementById("syncHint");
 const googleLoginBtn = document.getElementById("googleLoginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
+const matchInput = document.getElementById("matchInput");
+const matchIdInput = document.getElementById("matchIdInput");
+const manualMatchInput = document.getElementById("manualMatchInput");
 const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
+const matchChart = document.getElementById("matchChart");
+const scoreChart = document.getElementById("scoreChart");
+const matchBreakdown = document.getElementById("matchBreakdown");
 const memberStats = document.getElementById("memberStats");
 const dateStats = document.getElementById("dateStats");
 const filterMember = document.getElementById("filterMember");
@@ -15,8 +23,10 @@ const filterResult = document.getElementById("filterResult");
 const searchInput = document.getElementById("searchInput");
 const resetDataBtn = document.getElementById("resetDataBtn");
 const exportBtn = document.getElementById("exportBtn");
+const refreshMatchesBtn = document.getElementById("refreshMatchesBtn");
 
 let records = loadRecords();
+let availableMatches = [];
 let auth = null;
 let firestore = null;
 let stopFirestoreSync = null;
@@ -79,14 +89,73 @@ function formatCurrency(amount) {
   }).format(Number(amount) || 0);
 }
 
+function toLocalDateValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toEspnDateValue(date) {
+  return toLocalDateValue(date).replaceAll("-", "");
+}
+
+function getNearThreeDayRange() {
+  const start = new Date();
+  start.setDate(start.getDate() - 1);
+  const end = new Date();
+  end.setDate(end.getDate() + 1);
+  return `${toEspnDateValue(start)}-${toEspnDateValue(end)}`;
+}
+
 function getResultLabel(result) {
   return { win: "贏", loss: "輸", pending: "未開獎" }[result] || "未開獎";
 }
 
+function getRecordPayout(item) {
+  if (item.result !== "win") return 0;
+  return Number(item.amount || 0) * Number(item.odds || 0);
+}
+
+function getSettlementStats(items) {
+  return items.reduce(
+    (stats, item) => {
+      const amount = Number(item.amount || 0);
+      stats.totalAmount += amount;
+
+      if (item.result === "pending") {
+        stats.pendingAmount += amount;
+        return stats;
+      }
+
+      if (item.result === "win" || item.result === "loss") {
+        stats.settledAmount += amount;
+        stats.payout += getRecordPayout(item);
+      }
+
+      return stats;
+    },
+    { totalAmount: 0, settledAmount: 0, pendingAmount: 0, payout: 0 }
+  );
+}
+
+function getNetAmount(items) {
+  const stats = getSettlementStats(items);
+  return stats.payout - stats.settledAmount;
+}
+
+function getMoneyToneClass(amount) {
+  if (amount > 0) return "is-positive";
+  if (amount < 0) return "is-negative";
+  return "is-even";
+}
+
 function calculateSummary(items) {
+  const settlement = getSettlementStats(items);
   return {
     totalCount: items.length,
-    totalAmount: items.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    totalAmount: settlement.totalAmount,
+    netAmount: settlement.payout - settlement.settledAmount,
     pendingCount: items.filter((item) => item.result === "pending").length,
     completedCount: items.filter((item) => item.result === "win" || item.result === "loss").length,
   };
@@ -106,21 +175,336 @@ function groupStats(items, key) {
   return Array.from(grouped.values());
 }
 
+function normalizeScore(score) {
+  const text = String(score || "").trim();
+  return text || "未填寫";
+}
+
+function getGroupedBetStats(items, keyGetter) {
+  const grouped = new Map();
+
+  items.forEach((item) => {
+    const label = keyGetter(item) || "未填寫";
+    const current = grouped.get(label) || {
+      label,
+      count: 0,
+      amount: 0,
+      oddsTotal: 0,
+      members: new Set(),
+      records: [],
+    };
+    current.count += 1;
+    current.amount += Number(item.amount || 0);
+    current.oddsTotal += Number(item.odds || 0);
+    current.members.add(item.member || "未填寫");
+    current.records.push(item);
+    grouped.set(label, current);
+  });
+
+  return Array.from(grouped.values()).map((entry) => ({
+    ...entry,
+    averageOdds: entry.count ? entry.oddsTotal / entry.count : 0,
+    memberCount: entry.members.size,
+  }));
+}
+
+function getCompetitor(competition, homeAway) {
+  return competition?.competitors?.find((competitor) => competitor.homeAway === homeAway);
+}
+
+function parseScore(score) {
+  const match = String(score || "").trim().match(/^(\d+)\s*[-:：]\s*(\d+)$/);
+  if (!match) return null;
+  return `${Number(match[1])}-${Number(match[2])}`;
+}
+
+function calculateRegulationScore(event) {
+  const competition = event.competitions?.[0];
+  const home = getCompetitor(competition, "home");
+  const away = getCompetitor(competition, "away");
+  if (!competition || !home || !away) return null;
+
+  const status = competition.status?.type || event.status?.type || {};
+  const completed = Boolean(status.completed);
+  if (!completed) return null;
+
+  const isExtraTimeResult = String(status.name || "").includes("AET") || String(status.detail || "").includes("AET");
+  if (!isExtraTimeResult) {
+    return `${Number(home.score || 0)}-${Number(away.score || 0)}`;
+  }
+
+  const teamIds = {
+    home: String(home.team?.id || home.id),
+    away: String(away.team?.id || away.id),
+  };
+  const score = { home: 0, away: 0 };
+  const goals = competition.details || [];
+
+  goals.forEach((detail) => {
+    const isGoal = detail.scoringPlay && !detail.shootout && Number(detail.scoreValue || 0) > 0;
+    const isRegulation = Number(detail.clock?.value || 0) <= 5400;
+    if (!isGoal || !isRegulation) return;
+
+    const teamId = String(detail.team?.id || "");
+    if (teamId === teamIds.home) score.home += Number(detail.scoreValue || 0);
+    if (teamId === teamIds.away) score.away += Number(detail.scoreValue || 0);
+  });
+
+  return `${score.home}-${score.away}`;
+}
+
+function normalizeEspnMatch(event) {
+  const competition = event.competitions?.[0];
+  const home = getCompetitor(competition, "home");
+  const away = getCompetitor(competition, "away");
+  if (!home || !away) return null;
+
+  const homeName = home.team?.displayName || home.team?.shortDisplayName || "主隊";
+  const awayName = away.team?.displayName || away.team?.shortDisplayName || "客隊";
+  const kickoff = new Date(event.date);
+  const label = `${homeName} VS ${awayName}`;
+  const status = competition.status?.type || event.status?.type || {};
+
+  return {
+    id: String(event.id),
+    label,
+    date: toLocalDateValue(kickoff),
+    displayTime: kickoff.toLocaleString("zh-TW", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }),
+    statusText: status.shortDetail || status.detail || "未開賽",
+    completed: Boolean(status.completed),
+    regulationScore: calculateRegulationScore(event),
+  };
+}
+
+function populateMatchSelect(matches) {
+  const currentValue = matchInput.value;
+  const options = matches
+    .map((match) => {
+      const suffix = match.completed && match.regulationScore ? ` · 正規 ${match.regulationScore}` : ` · ${match.statusText}`;
+      return `<option value="${escapeHtml(match.label)}" data-id="${escapeHtml(match.id)}">${escapeHtml(
+        `${match.displayTime} · ${match.label}${suffix}`
+      )}</option>`;
+    })
+    .join("");
+
+  matchInput.innerHTML = `
+    <option value="">選擇近 3 天賽事</option>
+    ${options}
+    <option value="__manual__">手動輸入其他賽事</option>
+  `;
+
+  matchInput.value = matches.some((match) => match.label === currentValue) ? currentValue : "";
+  updateMatchMode();
+}
+
+function updateMatchMode() {
+  const selectedOption = matchInput.selectedOptions?.[0];
+  const isManual = matchInput.value === "__manual__";
+  manualMatchInput.hidden = !isManual;
+  manualMatchInput.required = isManual;
+  matchIdInput.value = isManual ? "" : selectedOption?.dataset.id || "";
+}
+
+async function fetchWorldCupMatches() {
+  const url = `${ESPN_SCOREBOARD_URL}?limit=100&dates=${getNearThreeDayRange()}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`賽程 API 回應 ${response.status}`);
+  const data = await response.json();
+  return (data.events || [])
+    .map(normalizeEspnMatch)
+    .filter(Boolean)
+    .sort((a, b) => `${a.date} ${a.displayTime}`.localeCompare(`${b.date} ${b.displayTime}`));
+}
+
+async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
+  refreshMatchesBtn.disabled = true;
+  refreshMatchesBtn.textContent = "更新中...";
+
+  try {
+    availableMatches = await fetchWorldCupMatches();
+    populateMatchSelect(availableMatches);
+    const changed = applyMatchResultsToRecords(availableMatches);
+    render();
+    if (changed && saveAfterUpdate) await saveRecords();
+    syncHint.textContent = `已更新近 3 天賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
+  } catch (error) {
+    console.error("無法更新世界盃賽程/賽果：", error);
+    matchInput.innerHTML = `
+      <option value="">賽程載入失敗</option>
+      <option value="__manual__">手動輸入其他賽事</option>
+    `;
+    updateMatchMode();
+    syncHint.textContent = `賽程/賽果更新失敗，可先手動輸入：${error.message}`;
+  } finally {
+    refreshMatchesBtn.disabled = false;
+    refreshMatchesBtn.textContent = "更新賽程/賽果";
+  }
+}
+
+function applyMatchResultsToRecords(matches) {
+  const resultsById = new Map(matches.filter((match) => match.completed && match.regulationScore).map((match) => [match.id, match]));
+  let changed = false;
+
+  records = records.map((record) => {
+    const match = resultsById.get(String(record.matchId || ""));
+    const predictedScore = parseScore(record.note);
+    if (!match || !predictedScore || record.result !== "pending") return record;
+
+    const result = predictedScore === match.regulationScore ? "win" : "loss";
+    changed = true;
+    return { ...record, result, settledScore: match.regulationScore, settledAt: new Date().toISOString() };
+  });
+
+  return changed;
+}
+
+function buildPieSlices(items) {
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+  let cursor = 0;
+  const colors = ["#111111", "#2f6f73", "#b64e35", "#d3a21f", "#6f5ca8", "#5f7f3d", "#8b4c68"];
+
+  return items.map((item, index) => {
+    const start = cursor;
+    const size = total ? (item.count / total) * 100 : 0;
+    cursor += size;
+    return {
+      ...item,
+      color: colors[index % colors.length],
+      start,
+      end: cursor,
+      percentage: total ? Math.round((item.count / total) * 100) : 0,
+    };
+  });
+}
+
+function renderPieChart(target, items, emptyText) {
+  if (!items.length) {
+    target.innerHTML = `<p class="empty">${emptyText}</p>`;
+    return;
+  }
+
+  const slices = buildPieSlices(items.slice(0, 7));
+  const gradient = slices.map((slice) => `${slice.color} ${slice.start}% ${slice.end}%`).join(", ");
+
+  target.innerHTML = `
+    <div class="pie-layout">
+      <div class="pie-chart" style="background: conic-gradient(${gradient});" aria-hidden="true"></div>
+      <div class="pie-legend">
+        ${slices
+          .map(
+            (slice) => `
+              <div class="legend-row">
+                <span class="legend-swatch" style="background:${slice.color}"></span>
+                <span>${escapeHtml(slice.label)}</span>
+                <strong>${slice.count} 筆 · ${slice.percentage}%</strong>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderMatchBreakdown(matchItems) {
+  if (!matchItems.length) {
+    matchBreakdown.innerHTML = '<p class="empty">還沒有可分析的下注資料</p>';
+    return;
+  }
+
+  matchBreakdown.innerHTML = matchItems
+    .map((match) => {
+      const scoreItems = getGroupedBetStats(match.records, (item) => normalizeScore(item.note)).sort(
+        (a, b) => b.count - a.count || b.amount - a.amount
+      );
+      const topScores = scoreItems
+        .map(
+          (score) => `
+            <div class="score-chip">
+              <strong>${escapeHtml(score.label)}</strong>
+              <span>${score.count} 筆 · 均賠 ${score.averageOdds.toFixed(2)}</span>
+            </div>
+          `
+        )
+        .join("");
+      const memberRows = match.records
+        .slice()
+        .sort((a, b) => String(a.member).localeCompare(String(b.member), "zh-Hant"))
+        .map(
+          (record) => `
+            <tr>
+              <td>${escapeHtml(record.member || "未填寫")}</td>
+              <td>${escapeHtml(normalizeScore(record.note))}</td>
+              <td>${Number(record.odds || 0).toFixed(2)}</td>
+              <td>${formatCurrency(record.amount)}</td>
+            </tr>
+          `
+        )
+        .join("");
+
+      return `
+        <article class="match-card">
+          <div class="match-card-header">
+            <div>
+              <h3>${escapeHtml(match.label)}</h3>
+              <p>${match.count} 筆 · ${match.memberCount} 人 · ${formatCurrency(match.amount)} · 平均賠率 ${match.averageOdds.toFixed(2)}</p>
+            </div>
+          </div>
+          <div class="score-strip">${topScores}</div>
+          <div class="compact-table-wrap">
+            <table class="compact-table">
+              <thead>
+                <tr>
+                  <th>成員</th>
+                  <th>比數</th>
+                  <th>賠率</th>
+                  <th>金額</th>
+                </tr>
+              </thead>
+              <tbody>${memberRows}</tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderVisualStats() {
+  const byMatch = getGroupedBetStats(records, (item) => item.match || "未填寫").sort(
+    (a, b) => b.count - a.count || b.amount - a.amount
+  );
+  const byScore = getGroupedBetStats(records, (item) => normalizeScore(item.note)).sort(
+    (a, b) => b.count - a.count || b.amount - a.amount
+  );
+
+  renderPieChart(matchChart, byMatch, "還沒有場次資料");
+  renderPieChart(scoreChart, byScore, "還沒有比數資料");
+  renderMatchBreakdown(byMatch);
+}
+
 function renderSummary() {
   const summary = calculateSummary(records);
   const items = [
-    ["總筆數", summary.totalCount],
-    ["下注總額", formatCurrency(summary.totalAmount)],
-    ["未開獎", summary.pendingCount],
-    ["已結算", summary.completedCount],
+    { label: "總筆數", value: summary.totalCount },
+    { label: "下注總額", value: formatCurrency(summary.totalAmount) },
+    { label: "目前淨輸贏", value: formatCurrency(summary.netAmount), tone: getMoneyToneClass(summary.netAmount) },
+    { label: "未開獎", value: summary.pendingCount },
+    { label: "已結算", value: summary.completedCount },
   ];
 
   summaryStats.innerHTML = items
     .map(
-      ([label, value]) => `
+      (item) => `
         <div class="summary-item">
-          <span>${label}</span>
-          <strong>${value}</strong>
+          <span>${item.label}</span>
+          <strong class="${item.tone || ""}">${item.value}</strong>
         </div>
       `
     )
@@ -142,10 +526,59 @@ function renderStatList(target, items) {
     : '<p class="empty">還沒有資料</p>';
 }
 
+function getMemberFinanceStats(items) {
+  const grouped = new Map();
+
+  items.forEach((item) => {
+    const label = item.member || "未填寫";
+    const current = grouped.get(label) || {
+      label,
+      count: 0,
+      records: [],
+    };
+    current.count += 1;
+    current.records.push(item);
+    grouped.set(label, current);
+  });
+
+  return Array.from(grouped.values()).map((entry) => {
+    const settlement = getSettlementStats(entry.records);
+    const netAmount = settlement.payout - settlement.settledAmount;
+    return {
+      ...entry,
+      ...settlement,
+      netAmount,
+    };
+  });
+}
+
+function renderMemberFinanceList(target, items) {
+  target.innerHTML = items.length
+    ? items
+        .map(
+          (entry) => `
+            <div class="member-money-row">
+              <div class="member-money-main">
+                <strong>${escapeHtml(entry.label)}</strong>
+                <span>${entry.count} 筆 · 總投注 ${formatCurrency(entry.totalAmount)}</span>
+              </div>
+              <div class="member-money-grid">
+                <span>已結算 <strong>${formatCurrency(entry.settledAmount)}</strong></span>
+                <span>未開獎 <strong>${formatCurrency(entry.pendingAmount)}</strong></span>
+                <span>派彩 <strong>${formatCurrency(entry.payout)}</strong></span>
+                <span>淨輸贏 <strong class="${getMoneyToneClass(entry.netAmount)}">${formatCurrency(entry.netAmount)}</strong></span>
+              </div>
+            </div>
+          `
+        )
+        .join("")
+    : '<p class="empty">還沒有資料</p>';
+}
+
 function renderStatsPanels() {
-  const byMember = groupStats(records, "member").sort((a, b) => b.amount - a.amount);
+  const byMember = getMemberFinanceStats(records).sort((a, b) => b.netAmount - a.netAmount || b.totalAmount - a.totalAmount);
   const byDate = groupStats(records, "date").sort((a, b) => b.label.localeCompare(a.label));
-  renderStatList(memberStats, byMember);
+  renderMemberFinanceList(memberStats, byMember);
   renderStatList(dateStats, byDate);
 }
 
@@ -200,6 +633,7 @@ function populateMemberFilter() {
 
 function render() {
   renderSummary();
+  renderVisualStats();
   renderStatsPanels();
   populateMemberFilter();
   renderRecords();
@@ -233,6 +667,7 @@ function startFirestoreSync() {
         const cloudRecords = snapshot.data()?.records;
         if (Array.isArray(cloudRecords)) {
           records = cloudRecords;
+          applyMatchResultsToRecords(availableMatches);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
         }
@@ -247,11 +682,14 @@ function startFirestoreSync() {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(form);
+  const isManualMatch = matchInput.value === "__manual__";
+  const selectedMatch = isManualMatch ? manualMatchInput.value : formData.get("match");
   const entry = {
     id: createId(),
     member: String(formData.get("member") || "").trim(),
     date: String(formData.get("date") || "").trim(),
-    match: String(formData.get("match") || "").trim(),
+    match: String(selectedMatch || "").trim(),
+    matchId: isManualMatch ? "" : String(formData.get("matchId") || "").trim(),
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
     result: String(formData.get("result") || "pending"),
@@ -264,10 +702,12 @@ form.addEventListener("submit", async (event) => {
   }
 
   records.unshift(entry);
+  applyMatchResultsToRecords(availableMatches);
   render();
   await saveRecords();
   form.reset();
-  document.getElementById("dateInput").value = new Date().toISOString().slice(0, 10);
+  document.getElementById("dateInput").value = toLocalDateValue();
+  updateMatchMode();
 });
 
 recordsBody.addEventListener("click", async (event) => {
@@ -301,6 +741,9 @@ exportBtn.addEventListener("click", () => {
   element.addEventListener("input", renderRecords);
   element.addEventListener("change", renderRecords);
 });
+
+matchInput.addEventListener("change", updateMatchMode);
+refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 
 googleLoginBtn.addEventListener("click", async () => {
   if (!auth) {
@@ -339,5 +782,7 @@ if (auth) {
   updateAuthUI(null);
 }
 
-document.getElementById("dateInput").value = new Date().toISOString().slice(0, 10);
+document.getElementById("dateInput").value = toLocalDateValue();
+refreshWorldCupData();
+window.setInterval(() => refreshWorldCupData(), MATCH_REFRESH_INTERVAL);
 render();

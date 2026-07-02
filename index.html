@@ -35,6 +35,7 @@
       <section class="toolbar" aria-label="資料操作">
         <p id="syncHint">未登入時，資料只會儲存在這台裝置。</p>
         <div>
+          <button id="refreshMatchesBtn" class="text-button" type="button">更新賽程/賽果</button>
           <button id="exportBtn" class="text-button" type="button">匯出 JSON</button>
           <button id="resetDataBtn" class="text-button danger-text" type="button">清空資料</button>
         </div>
@@ -59,7 +60,11 @@
               </label>
               <label class="wide-field">
                 <span>賽事 / 隊伍</span>
-                <input id="matchInput" name="match" type="text" placeholder="例如：德國 vs 日本" required />
+                <select id="matchInput" name="match" required>
+                  <option value="">載入近 3 天賽事中...</option>
+                </select>
+                <input id="matchIdInput" name="matchId" type="hidden" />
+                <input id="manualMatchInput" type="text" placeholder="手動輸入賽事，例如：德國 vs 日本" hidden />
               </label>
               <label>
                 <span>下注金額</span>
@@ -78,8 +83,8 @@
                 </select>
               </label>
               <label class="wide-field">
-                <span>備註</span>
-                <textarea id="noteInput" name="note" rows="3" placeholder="選填"></textarea>
+                <span>預測比數</span>
+                <input id="noteInput" name="note" type="text" placeholder="例如：2-1" />
               </label>
             </div>
             <button class="button button-dark submit-button" type="submit">加入紀錄 <span aria-hidden="true">→</span></button>
@@ -125,7 +130,7 @@
                 <th>金額</th>
                 <th>賠率</th>
                 <th>結果</th>
-                <th>備註</th>
+                <th>預測比數</th>
                 <th><span class="sr-only">操作</span></th>
               </tr>
             </thead>
@@ -137,6 +142,24 @@
       <section class="card analysis-card">
         <div class="section-title">
           <span>04</span>
+          <h2>直覺統計</h2>
+        </div>
+        <div class="visual-grid">
+          <div class="panel">
+            <h3>大家下哪些場次</h3>
+            <div id="matchChart"></div>
+          </div>
+          <div class="panel">
+            <h3>大家猜哪些比數</h3>
+            <div id="scoreChart"></div>
+          </div>
+        </div>
+        <div class="match-breakdown" id="matchBreakdown"></div>
+      </section>
+
+      <section class="card analysis-card">
+        <div class="section-title">
+          <span>05</span>
           <h2>分類統計</h2>
         </div>
         <div class="mini-grid">
