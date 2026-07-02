@@ -16,7 +16,6 @@ const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
 const matchBreakdown = document.getElementById("matchBreakdown");
 const memberStats = document.getElementById("memberStats");
-const dateStats = document.getElementById("dateStats");
 const filterMember = document.getElementById("filterMember");
 const filterResult = document.getElementById("filterResult");
 const searchInput = document.getElementById("searchInput");
@@ -32,6 +31,9 @@ const recordsToggleSummary = document.getElementById("recordsToggleSummary");
 const analysisDateFilter = document.getElementById("analysisDateFilter");
 const analysisMatchFilter = document.getElementById("analysisMatchFilter");
 const statsDateFilter = document.getElementById("statsDateFilter");
+const statsMatchFilter = document.getElementById("statsMatchFilter");
+const statsMemberFilter = document.getElementById("statsMemberFilter");
+const statsRangeLabel = document.getElementById("statsRangeLabel");
 const filteredSummary = document.getElementById("filteredSummary");
 const submitButton = form.querySelector('[type="submit"]');
 
@@ -564,20 +566,34 @@ function renderMatchBreakdown(matchItems) {
       const scoreItems = getGroupedBetStats(match.records, (item) => normalizeScore(item.note)).sort(
         (a, b) => b.count - a.count || b.amount - a.amount
       );
-      const memberRows = match.records
-        .slice()
-        .sort((a, b) => String(a.member).localeCompare(String(b.member), "zh-Hant"))
-        .map(
-          (record) => `
-            <tr>
-              <td>${escapeHtml(record.member || "未填寫")}</td>
-              <td>${escapeHtml(normalizeScore(record.note))}</td>
-              <td>${Number(record.odds || 0).toFixed(2)}</td>
-              <td>${formatCurrency(record.amount)}</td>
-            </tr>
-          `
-        )
-        .join("");
+      const scoreGroups = scoreItems.map((score) => {
+        const memberRows = score.records
+          .slice()
+          .sort((a, b) => String(a.member).localeCompare(String(b.member), "zh-Hant") || Number(b.odds) - Number(a.odds))
+          .map((record) => `
+              <tr>
+                <td>${escapeHtml(record.member || "未填寫")}</td>
+                <td>${Number(record.odds || 0).toFixed(2)}</td>
+                <td>${formatCurrency(record.amount)}</td>
+              </tr>
+            `)
+          .join("");
+
+        return `
+          <section class="score-detail-group">
+            <div class="score-detail-header">
+              <h4>${escapeHtml(score.label)}</h4>
+              <span>${score.count} 筆 · ${formatCurrency(score.amount)} · 平均賠率 ${score.averageOdds.toFixed(2)}</span>
+            </div>
+            <div class="compact-table-wrap">
+              <table class="compact-table">
+                <thead><tr><th>成員</th><th>賠率</th><th>金額</th></tr></thead>
+                <tbody>${memberRows}</tbody>
+              </table>
+            </div>
+          </section>
+        `;
+      }).join("");
 
       return `
         <article class="match-card">
@@ -590,19 +606,7 @@ function renderMatchBreakdown(matchItems) {
           <div class="match-score-chart">
             ${getPieChartMarkup(scoreItems)}
           </div>
-          <div class="compact-table-wrap">
-            <table class="compact-table">
-              <thead>
-                <tr>
-                  <th>成員</th>
-                  <th>比數</th>
-                  <th>賠率</th>
-                  <th>金額</th>
-                </tr>
-              </thead>
-              <tbody>${memberRows}</tbody>
-            </table>
-          </div>
+          <div class="score-detail-groups">${scoreGroups}</div>
         </article>
       `;
     })
@@ -708,9 +712,7 @@ function renderMemberFinanceList(target, items) {
 
 function renderStatsPanels(items) {
   const byMember = getMemberFinanceStats(items).sort((a, b) => b.netAmount - a.netAmount || b.totalAmount - a.totalAmount);
-  const byDate = groupStats(items, "createdDate").sort((a, b) => b.label.localeCompare(a.label));
   renderMemberFinanceList(memberStats, byMember);
-  renderStatList(dateStats, byDate);
 }
 
 function populateAnalysisFilters() {
@@ -734,25 +736,45 @@ function getAnalysisRecords() {
   );
 }
 
-function populateStatsDateFilter() {
-  const currentValue = statsDateFilter.value;
+function populateStatsFilters() {
+  const currentDate = statsDateFilter.value;
+  const currentMatch = statsMatchFilter.value;
+  const currentMember = statsMemberFilter.value;
   const dates = Array.from(new Set(records.map((item) => item.createdDate).filter(Boolean))).sort().reverse();
+  const matches = Array.from(new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries())
+    .sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
+  const members = Array.from(new Set(records.map((item) => item.member).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-Hant"));
+
   statsDateFilter.innerHTML = '<option value="all">所有填表日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
-  statsDateFilter.value = dates.includes(currentValue) ? currentValue : "all";
+  statsMatchFilter.innerHTML = '<option value="all">所有場次</option>' + matches.map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
+  statsMemberFilter.innerHTML = '<option value="all">所有成員</option>' + members.map((member) => `<option value="${escapeHtml(member)}">${escapeHtml(member)}</option>`).join("");
+  statsDateFilter.value = dates.includes(currentDate) ? currentDate : "all";
+  statsMatchFilter.value = matches.some(([key]) => key === currentMatch) ? currentMatch : "all";
+  statsMemberFilter.value = members.includes(currentMember) ? currentMember : "all";
 }
 
 function getStatsRecords() {
-  return records.filter((item) => statsDateFilter.value === "all" || item.createdDate === statsDateFilter.value);
+  return records.filter((item) =>
+    (statsDateFilter.value === "all" || item.createdDate === statsDateFilter.value) &&
+    (statsMatchFilter.value === "all" || normalizeMatchKey(item.match) === statsMatchFilter.value) &&
+    (statsMemberFilter.value === "all" || item.member === statsMemberFilter.value)
+  );
 }
 
 function renderFilteredSummary(items) {
-  const summary = calculateSummary(items);
+  const settlement = getSettlementStats(items);
+  const netAmount = settlement.payout - settlement.settledAmount;
+  const dates = items.map((item) => item.createdDate).filter(Boolean).sort();
+  const dateRange = dates.length ? dates[0] === dates.at(-1) ? dates[0] : `${dates[0]} ～ ${dates.at(-1)}` : "沒有資料";
+  statsRangeLabel.textContent = `統計區間：${dateRange} · ${items.length} 筆紀錄`;
   filteredSummary.innerHTML = [
-    ["篩選筆數", summary.totalCount],
-    ["投注總額", formatCurrency(summary.totalAmount)],
-    ["未開獎", summary.pendingCount],
-    ["淨輸贏", formatCurrency(summary.netAmount)],
-  ].map(([label, value]) => `<div class="summary-item"><span>${label}</span><strong>${value}</strong></div>`).join("");
+    ["紀錄筆數", items.length, ""],
+    ["投注總額", formatCurrency(settlement.totalAmount), ""],
+    ["已結算", formatCurrency(settlement.settledAmount), ""],
+    ["未開獎", formatCurrency(settlement.pendingAmount), ""],
+    ["派彩", formatCurrency(settlement.payout), ""],
+    ["淨輸贏", formatCurrency(netAmount), getMoneyToneClass(netAmount)],
+  ].map(([label, value, tone]) => `<div class="summary-item"><span>${label}</span><strong class="${tone}">${value}</strong></div>`).join("");
 }
 
 function renderRecords() {
@@ -811,7 +833,7 @@ function render() {
   renderSummary();
   populateMemberFilter();
   populateAnalysisFilters();
-  populateStatsDateFilter();
+  populateStatsFilters();
   const analysisRecords = getAnalysisRecords();
   const statsRecords = getStatsRecords();
   renderVisualStats(analysisRecords);
@@ -950,10 +972,12 @@ exportBtn.addEventListener("click", () => {
   });
 });
 
-statsDateFilter.addEventListener("change", () => {
-  const statsRecords = getStatsRecords();
-  renderStatsPanels(statsRecords);
-  renderFilteredSummary(statsRecords);
+[statsDateFilter, statsMatchFilter, statsMemberFilter].forEach((element) => {
+  element.addEventListener("change", () => {
+    const statsRecords = getStatsRecords();
+    renderStatsPanels(statsRecords);
+    renderFilteredSummary(statsRecords);
+  });
 });
 
 matchInput.addEventListener("change", updateMatchMode);

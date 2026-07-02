@@ -160,18 +160,14 @@
         </div>
         <div class="analysis-filters stats-filters">
           <label><span>填表日期</span><select id="statsDateFilter"><option value="all">所有填表日期</option></select></label>
+          <label><span>場次</span><select id="statsMatchFilter"><option value="all">所有場次</option></select></label>
+          <label><span>成員</span><select id="statsMemberFilter"><option value="all">所有成員</option></select></label>
         </div>
-        <p class="section-description">依系統記錄的填表日期查看投注總覽與成員統計。</p>
+        <p id="statsRangeLabel" class="section-description">所有資料</p>
         <div id="filteredSummary" class="summary-grid filtered-summary"></div>
-        <div class="mini-grid">
-          <div class="panel">
-            <h3>依成員</h3>
-            <div id="memberStats"></div>
-          </div>
-          <div class="panel">
-            <h3>依日期</h3>
-            <div id="dateStats"></div>
-          </div>
+        <div class="panel member-dashboard-panel">
+          <h3>成員結算總表</h3>
+          <div id="memberStats"></div>
         </div>
       </section>
     </main>

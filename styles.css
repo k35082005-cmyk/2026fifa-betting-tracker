@@ -408,14 +408,26 @@ textarea::placeholder {
   margin: -8px 0 26px;
 }
 
+.stats-filters {
+  grid-template-columns: repeat(3, minmax(160px, 240px));
+}
+
 .filtered-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 28px;
   border-bottom: 1px solid var(--line);
 }
 
 .filtered-summary .summary-item {
   padding-right: 16px;
+}
+
+.member-dashboard-panel > h3 {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 10px;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
 .section-header {
@@ -684,6 +696,42 @@ td:last-child {
   margin: 22px 0 26px;
 }
 
+.score-detail-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.score-detail-group {
+  border: 1px solid var(--line);
+  padding: 0 16px 6px;
+  background: rgba(245, 245, 242, 0.48);
+}
+
+.score-detail-header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.score-detail-header h4 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.score-detail-header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
+}
+
+.score-detail-group .compact-table th:last-child,
+.score-detail-group .compact-table td:last-child {
+  text-align: right;
+}
+
 .score-strip {
   display: flex;
   flex-wrap: wrap;
@@ -781,6 +829,11 @@ td:last-child {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
+
+  .stats-filters,
+  .filtered-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -830,9 +883,12 @@ td:last-child {
     display: grid;
   }
 
-  .analysis-filters,
-  .filtered-summary {
+  .analysis-filters {
     grid-template-columns: 1fr;
+  }
+
+  .filtered-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   input,
@@ -854,6 +910,21 @@ td:last-child {
 
   .score-fieldset {
     padding: 12px 10px 14px;
+  }
+
+  .score-detail-group {
+    padding-inline: 10px;
+  }
+
+  .score-detail-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 0;
+  }
+
+  .score-detail-header span {
+    text-align: left;
   }
 
   .score-inputs {
