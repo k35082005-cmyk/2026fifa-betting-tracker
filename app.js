@@ -901,15 +901,17 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  records.unshift(entry);
-  applyMatchResultsToRecords(availableMatches);
-  render();
-  await saveRecords();
-  const selectedFixtureDate = matchDateInput.value;
-  form.reset();
-  memberInput.value = auth.currentUser.displayName || auth.currentUser.email || "Google 成員";
-  matchDateInput.value = selectedFixtureDate;
-  updateMatchMode();
+  submitButton.disabled = true;
+  submitButton.textContent = "儲存中...";
+  try {
+    records.unshift(entry);
+    applyMatchResultsToRecords(availableMatches);
+    render();
+    await saveRecords();
+  } finally {
+    submitButton.disabled = false;
+    submitButton.innerHTML = '加入紀錄 <span aria-hidden="true">→</span>';
+  }
 });
 
 recordsBody.addEventListener("click", async (event) => {
