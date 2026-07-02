@@ -9,3 +9,15 @@ Thumbs.db
 # Local runtime
 *.log
 .vercel
+.firebase/
+firebase-debug.log*
+
+# Local Firebase administration
+.firebaserc
+firebase.json
+firestore.rules
+storage.rules
+FIREBASE_SETUP.md
+
+# Local project notes
+README.md

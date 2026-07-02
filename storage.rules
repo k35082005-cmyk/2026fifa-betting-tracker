@@ -1,9 +1,0 @@
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      // The current site does not upload files.
-      allow read, write: if false;
-    }
-  }
-}
