@@ -3,6 +3,7 @@ const STORAGE_KEY = 'fifa-bet-tracker-v1';
 const form = document.getElementById('betForm');
 const authStatus = document.getElementById('authStatus');
 const loginBtn = document.getElementById('loginBtn');
+const registerBtn = document.getElementById('registerBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const recordsBody = document.getElementById('recordsBody');
 const summaryStats = document.getElementById('summaryStats');
@@ -209,12 +210,14 @@ function updateAuthUI() {
   if (!auth?.currentUser) {
     authStatus.textContent = '尚未登入';
     loginBtn.style.display = 'inline-flex';
+    registerBtn.style.display = 'inline-flex';
     logoutBtn.style.display = 'none';
     return;
   }
 
   authStatus.textContent = `已登入：${auth.currentUser.email || auth.currentUser.uid}`;
   loginBtn.style.display = 'none';
+  registerBtn.style.display = 'none';
   logoutBtn.style.display = 'inline-flex';
 }
 
@@ -318,6 +321,20 @@ loginBtn.addEventListener('click', async () => {
     syncFromFirestore();
   } catch (error) {
     alert('登入失敗：' + error.message);
+  }
+});
+
+registerBtn.addEventListener('click', async () => {
+  const email = window.prompt('請輸入註冊 Email');
+  const password = window.prompt('請輸入註冊密碼');
+  if (!email || !password) return;
+
+  try {
+    await auth.createUserWithEmailAndPassword(email, password);
+    updateAuthUI();
+    syncFromFirestore();
+  } catch (error) {
+    alert('註冊失敗：' + error.message);
   }
 });
 
