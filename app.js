@@ -730,7 +730,7 @@ function renderOverallMemberList(items) {
 
   const columnCount = items.length;
   const memberHeaders = items.map((entry, index) => `
-    <div class="overall-matrix-cell member-matrix-header member-color-${index % 4}">
+    <div class="overall-matrix-cell member-matrix-header member-color-${index % 6}">
       <span>${String.fromCharCode(65 + index)} 成員 · ${entry.count} 筆</span>
       <strong>${escapeHtml(entry.label)}</strong>
     </div>
@@ -902,7 +902,7 @@ function render() {
 }
 
 function setActivePage(pageName, { updateHash = true } = {}) {
-  const validPage = ["entry", "analysis", "stats"].includes(pageName) ? pageName : "entry";
+  const validPage = ["entry", "records", "overview", "analysis", "stats"].includes(pageName) ? pageName : "entry";
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
   });
