@@ -16,6 +16,7 @@ const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
 const matchBreakdown = document.getElementById("matchBreakdown");
 const memberStats = document.getElementById("memberStats");
+const overallMemberStats = document.getElementById("overallMemberStats");
 const filterMember = document.getElementById("filterMember");
 const filterResult = document.getElementById("filterResult");
 const searchInput = document.getElementById("searchInput");
@@ -36,6 +37,10 @@ const statsMemberFilter = document.getElementById("statsMemberFilter");
 const statsRangeLabel = document.getElementById("statsRangeLabel");
 const filteredSummary = document.getElementById("filteredSummary");
 const submitButton = form.querySelector('[type="submit"]');
+const menuToggle = document.getElementById("menuToggle");
+const pageMenu = document.getElementById("pageMenu");
+const pageButtons = Array.from(document.querySelectorAll("[data-page-target]"));
+const pageViews = Array.from(document.querySelectorAll("[data-page]"));
 
 const COUNTRY_NAMES_ZH = {
   England: "英格蘭", Congo: "剛果共和國", "Congo DR": "剛果民主共和國", Belgium: "比利時",
@@ -52,6 +57,8 @@ let availableMatches = [];
 let auth = null;
 let firestore = null;
 let stopFirestoreSync = null;
+let statsDateInitialized = false;
+let latestUpcomingStatsDate = "";
 
 const LEGACY_CREATED_DATE = "2026-07-02";
 const LEGACY_FIXTURES = [
@@ -715,6 +722,51 @@ function renderStatsPanels(items) {
   renderMemberFinanceList(memberStats, byMember);
 }
 
+function renderOverallMemberList(items) {
+  if (!items.length) {
+    overallMemberStats.innerHTML = '<p class="empty">還沒有資料</p>';
+    return;
+  }
+
+  const columnCount = items.length;
+  const memberHeaders = items.map((entry, index) => `
+    <div class="overall-matrix-cell member-matrix-header member-color-${index % 4}">
+      <span>${String.fromCharCode(65 + index)} 成員 · ${entry.count} 筆</span>
+      <strong>${escapeHtml(entry.label)}</strong>
+    </div>
+  `).join("");
+  const metricRow = (label, valueGetter, toneGetter = () => "") => `
+    <div class="overall-matrix-row" style="--member-count:${columnCount}">
+      <strong class="overall-metric-label">${label}</strong>
+      ${items.map((entry) => `<div class="overall-matrix-cell"><strong class="${toneGetter(entry)}">${valueGetter(entry)}</strong></div>`).join("")}
+    </div>
+  `;
+
+  overallMemberStats.innerHTML = `
+    <div class="overall-matrix-wrap">
+      <div class="overall-matrix" style="--member-count:${columnCount}">
+        <div class="overall-matrix-row overall-matrix-head" style="--member-count:${columnCount}">
+          <span class="overall-metric-label">項目</span>${memberHeaders}
+        </div>
+        ${metricRow("所有投注額", (entry) => formatCurrency(entry.totalAmount))}
+        ${metricRow("已派彩", (entry) => formatCurrency(entry.payout), (entry) => entry.payout > 0 ? "is-positive" : "")}
+        ${metricRow("淨輸贏", (entry) => formatCurrency(entry.netAmount), (entry) => getMoneyToneClass(entry.netAmount))}
+      </div>
+    </div>
+  `;
+}
+
+function renderOverallStats() {
+  const currentUid = auth?.currentUser?.uid;
+  const currentName = auth?.currentUser?.displayName || auth?.currentUser?.email;
+  const byMember = getMemberFinanceStats(records).sort((a, b) => {
+    const aIsCurrent = a.label === currentName || a.records.some((record) => record.memberUid === currentUid);
+    const bIsCurrent = b.label === currentName || b.records.some((record) => record.memberUid === currentUid);
+    return Number(bIsCurrent) - Number(aIsCurrent) || b.totalAmount - a.totalAmount || a.label.localeCompare(b.label, "zh-Hant");
+  });
+  renderOverallMemberList(byMember);
+}
+
 function populateAnalysisFilters() {
   const currentDate = analysisDateFilter.value;
   const currentMatch = analysisMatchFilter.value;
@@ -740,22 +792,28 @@ function populateStatsFilters() {
   const currentDate = statsDateFilter.value;
   const currentMatch = statsMatchFilter.value;
   const currentMember = statsMemberFilter.value;
-  const dates = Array.from(new Set(records.map((item) => item.createdDate).filter(Boolean))).sort().reverse();
+  const dates = Array.from(new Set(records.map((item) => item.matchDate).filter(Boolean))).sort().reverse();
   const matches = Array.from(new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries())
     .sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
   const members = Array.from(new Set(records.map((item) => item.member).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-Hant"));
 
-  statsDateFilter.innerHTML = '<option value="all">所有填表日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
+  const today = toLocalDateValue();
+  const upcomingDates = dates.filter((date) => date >= today);
+  const newestUpcomingDate = upcomingDates[0] || dates[0] || "all";
+  statsDateFilter.innerHTML = '<option value="all">所有比賽日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
   statsMatchFilter.innerHTML = '<option value="all">所有場次</option>' + matches.map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
   statsMemberFilter.innerHTML = '<option value="all">所有成員</option>' + members.map((member) => `<option value="${escapeHtml(member)}">${escapeHtml(member)}</option>`).join("");
-  statsDateFilter.value = dates.includes(currentDate) ? currentDate : "all";
+  const shouldFollowNewest = !statsDateInitialized || currentDate === latestUpcomingStatsDate || !dates.includes(currentDate);
+  statsDateFilter.value = shouldFollowNewest ? newestUpcomingDate : currentDate;
+  statsDateInitialized = true;
+  latestUpcomingStatsDate = newestUpcomingDate;
   statsMatchFilter.value = matches.some(([key]) => key === currentMatch) ? currentMatch : "all";
   statsMemberFilter.value = members.includes(currentMember) ? currentMember : "all";
 }
 
 function getStatsRecords() {
   return records.filter((item) =>
-    (statsDateFilter.value === "all" || item.createdDate === statsDateFilter.value) &&
+    (statsDateFilter.value === "all" || item.matchDate === statsDateFilter.value) &&
     (statsMatchFilter.value === "all" || normalizeMatchKey(item.match) === statsMatchFilter.value) &&
     (statsMemberFilter.value === "all" || item.member === statsMemberFilter.value)
   );
@@ -764,7 +822,7 @@ function getStatsRecords() {
 function renderFilteredSummary(items) {
   const settlement = getSettlementStats(items);
   const netAmount = settlement.payout - settlement.settledAmount;
-  const dates = items.map((item) => item.createdDate).filter(Boolean).sort();
+  const dates = items.map((item) => item.matchDate).filter(Boolean).sort();
   const dateRange = dates.length ? dates[0] === dates.at(-1) ? dates[0] : `${dates[0]} ～ ${dates.at(-1)}` : "沒有資料";
   statsRangeLabel.textContent = `統計區間：${dateRange} · ${items.length} 筆紀錄`;
   filteredSummary.innerHTML = [
@@ -831,6 +889,7 @@ function populateMemberFilter() {
 
 function render() {
   renderSummary();
+  renderOverallStats();
   populateMemberFilter();
   populateAnalysisFilters();
   populateStatsFilters();
@@ -840,6 +899,20 @@ function render() {
   renderStatsPanels(statsRecords);
   renderFilteredSummary(statsRecords);
   renderRecords();
+}
+
+function setActivePage(pageName, { updateHash = true } = {}) {
+  const validPage = ["entry", "analysis", "stats"].includes(pageName) ? pageName : "entry";
+  pageViews.forEach((view) => {
+    view.hidden = view.dataset.page !== validPage;
+  });
+  pageButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.pageTarget === validPage);
+  });
+  pageMenu.hidden = true;
+  menuToggle.setAttribute("aria-expanded", "false");
+  if (updateHash) history.replaceState(null, "", validPage === "entry" ? "#entry" : `#${validPage}`);
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function updateAuthUI(user = auth?.currentUser) {
@@ -980,6 +1053,23 @@ exportBtn.addEventListener("click", () => {
   });
 });
 
+menuToggle.addEventListener("click", () => {
+  const willOpen = pageMenu.hidden;
+  pageMenu.hidden = !willOpen;
+  menuToggle.setAttribute("aria-expanded", String(willOpen));
+});
+
+pageButtons.forEach((button) => {
+  button.addEventListener("click", () => setActivePage(button.dataset.pageTarget));
+});
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".page-navigation")) {
+    pageMenu.hidden = true;
+    menuToggle.setAttribute("aria-expanded", "false");
+  }
+});
+
 matchInput.addEventListener("change", updateMatchMode);
 matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
 manualMatchInput.addEventListener("input", updateMatchMode);
@@ -1024,6 +1114,7 @@ if (auth) {
 }
 
 matchDateInput.value = toLocalDateValue();
+setActivePage(location.hash.replace("#", ""), { updateHash: false });
 refreshWorldCupData();
 window.setInterval(() => refreshWorldCupData(), MATCH_REFRESH_INTERVAL);
 render();

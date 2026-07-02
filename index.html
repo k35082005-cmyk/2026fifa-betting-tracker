@@ -30,6 +30,16 @@
             <button id="googleLoginBtn" class="button button-dark" type="button">使用 Google 登入</button>
             <button id="logoutBtn" class="button button-light" type="button" hidden>登出</button>
           </div>
+          <div class="page-navigation">
+            <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="pageMenu" aria-label="開啟頁面選單">
+              <span></span><span></span><span></span>
+            </button>
+            <nav id="pageMenu" class="page-menu" aria-label="頁面選單" hidden>
+              <button type="button" data-page-target="entry">01–03　下注紀錄</button>
+              <button type="button" data-page-target="analysis">04　比分分析</button>
+              <button type="button" data-page-target="stats">05　結算總表</button>
+            </nav>
+          </div>
         </div>
       </header>
 
@@ -41,7 +51,7 @@
         </div>
       </section>
 
-      <section class="dashboard">
+      <section class="dashboard" data-page="entry">
         <article class="card form-card">
           <div class="section-title">
             <span>01</span>
@@ -97,7 +107,7 @@
         </aside>
       </section>
 
-      <section class="card records-card">
+      <section class="card records-card" data-page="entry">
         <div class="section-header">
           <div class="section-title">
             <span>03</span>
@@ -140,7 +150,7 @@
         </details>
       </section>
 
-      <section class="card analysis-card">
+      <section class="card analysis-card" data-page="analysis" hidden>
         <div class="section-title">
           <span>04</span>
           <h2>各場預測比分分布</h2>
@@ -153,13 +163,24 @@
         <div class="match-breakdown" id="matchBreakdown"></div>
       </section>
 
-      <section class="card analysis-card">
+      <section class="card analysis-card" data-page="stats" hidden>
         <div class="section-title">
           <span>05</span>
           <h2>分類統計</h2>
         </div>
+        <div class="panel overall-dashboard-panel">
+          <div class="dashboard-subheading">
+            <h3>全期間成員總表</h3>
+            <span>不受下方篩選條件影響</span>
+          </div>
+          <div id="overallMemberStats"></div>
+        </div>
+        <div class="dashboard-subheading filtered-heading">
+          <h3>條件篩選結算表</h3>
+          <span>依比賽日期、場次或成員查看</span>
+        </div>
         <div class="analysis-filters stats-filters">
-          <label><span>填表日期</span><select id="statsDateFilter"><option value="all">所有填表日期</option></select></label>
+          <label><span>比賽日期</span><select id="statsDateFilter"><option value="all">所有比賽日期</option></select></label>
           <label><span>場次</span><select id="statsMatchFilter"><option value="all">所有場次</option></select></label>
           <label><span>成員</span><select id="statsMemberFilter"><option value="all">所有成員</option></select></label>
         </div>
