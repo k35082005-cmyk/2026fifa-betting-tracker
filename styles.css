@@ -463,6 +463,29 @@ textarea::placeholder {
   margin-bottom: 24px;
 }
 
+.records-card {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  contain: inline-size;
+}
+
+.records-details {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  contain: inline-size;
+}
+
+.records-details .table-wrap {
+  display: block;
+  min-width: 0;
+  contain: inline-size;
+}
+
 .records-details > summary {
   border-top: 1px solid var(--ink);
   border-bottom: 1px solid var(--line);
@@ -630,6 +653,8 @@ textarea::placeholder {
 
 .filters {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   flex: 1;
   justify-content: flex-end;
   gap: 10px;
