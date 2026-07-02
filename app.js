@@ -8,8 +8,6 @@ const recordsBody = document.getElementById('recordsBody');
 const summaryStats = document.getElementById('summaryStats');
 const memberStats = document.getElementById('memberStats');
 const dateStats = document.getElementById('dateStats');
-const dockAmount = document.getElementById('dockAmount');
-const dockPending = document.getElementById('dockPending');
 const filterMember = document.getElementById('filterMember');
 const filterResult = document.getElementById('filterResult');
 const searchInput = document.getElementById('searchInput');
@@ -119,8 +117,6 @@ function buildDateStats(items) {
 
 function renderSummary() {
   const summary = calculateSummary(records);
-  dockAmount.textContent = formatCurrency(summary.totalAmount);
-  dockPending.textContent = summary.pendingCount;
 
   summaryStats.innerHTML = `
     <div class="summary-item">
