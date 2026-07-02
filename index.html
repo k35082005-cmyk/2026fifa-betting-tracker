@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f5f5f2" />
-    <meta name="description" content="簡潔的 2026 世界盃下注紀錄與統計工具" />
-    <title>2026 FIFA｜下注紀錄</title>
+    <meta name="description" content="2026 FIFA 世界盃比分預測與派彩紀錄。" />
+    <title>2026 FIFA｜START FROM 0702</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -18,9 +18,10 @@
     <main class="app-shell">
       <header class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">WORLD CUP 2026 · BET LOG</p>
-          <h1>下注紀錄</h1>
-          <p>把每一筆下注、賠率與結果放在同一個乾淨的地方。</p>
+          <p class="eyebrow">WORLD CUP · BET LOG</p>
+          <h1>2026 FIFA</h1>
+          <p class="hero-subtitle">START FROM 0702</p>
+          <p class="hero-description">世界盃比分預測、賠率與派彩紀錄。</p>
         </div>
 
         <div class="account">
@@ -82,10 +83,15 @@
                   <option value="loss">輸</option>
                 </select>
               </label>
-              <label class="wide-field">
-                <span>預測比數</span>
-                <input id="noteInput" name="note" type="text" placeholder="例如：2-1" />
-              </label>
+              <fieldset id="scoreFields" class="wide-field score-fieldset" disabled>
+                <legend>預測比數</legend>
+                <p id="scoreHint">請先選擇賽事，系統會帶入兩隊名稱。</p>
+                <div class="score-inputs">
+                  <label><span id="homeScoreLabel">A 隊</span><input id="homeScoreInput" name="homeScore" type="number" min="0" max="99" step="1" inputmode="numeric" placeholder="0" required /></label>
+                  <span class="score-divider" aria-hidden="true">—</span>
+                  <label><span id="awayScoreLabel">B 隊</span><input id="awayScoreInput" name="awayScore" type="number" min="0" max="99" step="1" inputmode="numeric" placeholder="0" required /></label>
+                </div>
+              </fieldset>
             </div>
             <button class="button button-dark submit-button" type="submit">加入紀錄 <span aria-hidden="true">→</span></button>
           </form>
@@ -142,18 +148,9 @@
       <section class="card analysis-card">
         <div class="section-title">
           <span>04</span>
-          <h2>直覺統計</h2>
+          <h2>各場預測比分分布</h2>
         </div>
-        <div class="visual-grid">
-          <div class="panel">
-            <h3>大家下哪些場次</h3>
-            <div id="matchChart"></div>
-          </div>
-          <div class="panel">
-            <h3>大家猜哪些比數</h3>
-            <div id="scoreChart"></div>
-          </div>
-        </div>
+        <p class="section-description">每一場賽事獨立統計，查看成員對該場比分的預測占比。</p>
         <div class="match-breakdown" id="matchBreakdown"></div>
       </section>
 

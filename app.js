@@ -13,8 +13,6 @@ const matchIdInput = document.getElementById("matchIdInput");
 const manualMatchInput = document.getElementById("manualMatchInput");
 const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
-const matchChart = document.getElementById("matchChart");
-const scoreChart = document.getElementById("scoreChart");
 const matchBreakdown = document.getElementById("matchBreakdown");
 const memberStats = document.getElementById("memberStats");
 const dateStats = document.getElementById("dateStats");
@@ -24,6 +22,20 @@ const searchInput = document.getElementById("searchInput");
 const resetDataBtn = document.getElementById("resetDataBtn");
 const exportBtn = document.getElementById("exportBtn");
 const refreshMatchesBtn = document.getElementById("refreshMatchesBtn");
+const scoreFields = document.getElementById("scoreFields");
+const scoreHint = document.getElementById("scoreHint");
+const homeScoreLabel = document.getElementById("homeScoreLabel");
+const awayScoreLabel = document.getElementById("awayScoreLabel");
+
+const COUNTRY_NAMES_ZH = {
+  England: "英格蘭", Congo: "剛果共和國", "Congo DR": "剛果民主共和國", Belgium: "比利時",
+  Senegal: "塞內加爾", "United States": "美國", USA: "美國", "Bosnia-Herzegovina": "波士尼亞與赫塞哥維納",
+  Spain: "西班牙", Austria: "奧地利", Portugal: "葡萄牙", Croatia: "克羅埃西亞", Switzerland: "瑞士",
+  Algeria: "阿爾及利亞", Australia: "澳洲", Egypt: "埃及", Argentina: "阿根廷", "Cape Verde": "維德角",
+  Colombia: "哥倫比亞", Ghana: "迦納", Germany: "德國", Japan: "日本", France: "法國", Brazil: "巴西",
+  Mexico: "墨西哥", Canada: "加拿大", Morocco: "摩洛哥", Tunisia: "突尼西亞", Uruguay: "烏拉圭",
+  Ecuador: "厄瓜多", "South Korea": "韓國", Korea: "韓國", Iran: "伊朗", Qatar: "卡達", "Saudi Arabia": "沙烏地阿拉伯"
+};
 
 let records = loadRecords();
 let availableMatches = [];
@@ -176,8 +188,17 @@ function groupStats(items, key) {
 }
 
 function normalizeScore(score) {
-  const text = String(score || "").trim();
-  return text || "未填寫";
+  const text = String(score || "").normalize("NFKC").trim();
+  return parseScore(text) || text || "未填寫";
+}
+
+function normalizeMatchKey(match) {
+  return String(match || "未填寫")
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("zh-Hant")
+    .replace(/\s*(?:vs\.?|對)\s*/gi, "::")
+    .replace(/\s+/g, " ");
 }
 
 function getGroupedBetStats(items, keyGetter) {
@@ -212,8 +233,12 @@ function getCompetitor(competition, homeAway) {
   return competition?.competitors?.find((competitor) => competitor.homeAway === homeAway);
 }
 
+function localizeCountryName(name) {
+  return COUNTRY_NAMES_ZH[String(name || "").trim()] || name;
+}
+
 function parseScore(score) {
-  const match = String(score || "").trim().match(/^(\d+)\s*[-:：]\s*(\d+)$/);
+  const match = String(score || "").normalize("NFKC").trim().match(/^(\d+)\s*[-:]\s*(\d+)$/);
   if (!match) return null;
   return `${Number(match[1])}-${Number(match[2])}`;
 }
@@ -259,8 +284,8 @@ function normalizeEspnMatch(event) {
   const away = getCompetitor(competition, "away");
   if (!home || !away) return null;
 
-  const homeName = home.team?.displayName || home.team?.shortDisplayName || "主隊";
-  const awayName = away.team?.displayName || away.team?.shortDisplayName || "客隊";
+  const homeName = localizeCountryName(home.team?.displayName || home.team?.shortDisplayName || "主隊");
+  const awayName = localizeCountryName(away.team?.displayName || away.team?.shortDisplayName || "客隊");
   const kickoff = new Date(event.date);
   const label = `${homeName} VS ${awayName}`;
   const status = competition.status?.type || event.status?.type || {};
@@ -268,6 +293,8 @@ function normalizeEspnMatch(event) {
   return {
     id: String(event.id),
     label,
+    homeName,
+    awayName,
     date: toLocalDateValue(kickoff),
     displayTime: kickoff.toLocaleString("zh-TW", {
       month: "2-digit",
@@ -309,6 +336,13 @@ function updateMatchMode() {
   manualMatchInput.hidden = !isManual;
   manualMatchInput.required = isManual;
   matchIdInput.value = isManual ? "" : selectedOption?.dataset.id || "";
+  const selectedMatch = availableMatches.find((match) => match.id === matchIdInput.value);
+  const hasMatch = isManual ? Boolean(manualMatchInput.value.trim()) : Boolean(selectedMatch);
+  const manualTeams = manualMatchInput.value.split(/\s+vs\s+/i).map((name) => name.trim());
+  homeScoreLabel.textContent = selectedMatch?.homeName || manualTeams[0] || "A 隊";
+  awayScoreLabel.textContent = selectedMatch?.awayName || manualTeams[1] || "B 隊";
+  scoreFields.disabled = !hasMatch;
+  scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（正規時間）` : "請先選擇賽事，系統會帶入兩隊名稱。";
 }
 
 async function fetchWorldCupMatches() {
@@ -353,7 +387,9 @@ function applyMatchResultsToRecords(matches) {
 
   records = records.map((record) => {
     const match = resultsById.get(String(record.matchId || ""));
-    const predictedScore = parseScore(record.note);
+    const predictedScore = Number.isInteger(record.predictedHome) && Number.isInteger(record.predictedAway)
+      ? `${record.predictedHome}-${record.predictedAway}`
+      : parseScore(record.note);
     if (!match || !predictedScore || record.result !== "pending") return record;
 
     const result = predictedScore === match.regulationScore ? "win" : "loss";
@@ -383,30 +419,20 @@ function buildPieSlices(items) {
   });
 }
 
-function renderPieChart(target, items, emptyText) {
-  if (!items.length) {
-    target.innerHTML = `<p class="empty">${emptyText}</p>`;
-    return;
-  }
-
-  const slices = buildPieSlices(items.slice(0, 7));
+function getPieChartMarkup(items) {
+  const slices = buildPieSlices(items);
   const gradient = slices.map((slice) => `${slice.color} ${slice.start}% ${slice.end}%`).join(", ");
-
-  target.innerHTML = `
+  return `
     <div class="pie-layout">
       <div class="pie-chart" style="background: conic-gradient(${gradient});" aria-hidden="true"></div>
       <div class="pie-legend">
-        ${slices
-          .map(
-            (slice) => `
-              <div class="legend-row">
-                <span class="legend-swatch" style="background:${slice.color}"></span>
-                <span>${escapeHtml(slice.label)}</span>
-                <strong>${slice.count} 筆 · ${slice.percentage}%</strong>
-              </div>
-            `
-          )
-          .join("")}
+        ${slices.map((slice) => `
+          <div class="legend-row">
+            <span class="legend-swatch" style="background:${slice.color}"></span>
+            <span>${escapeHtml(slice.label)}</span>
+            <strong>${slice.count} 筆 · ${slice.percentage}%</strong>
+          </div>
+        `).join("")}
       </div>
     </div>
   `;
@@ -423,16 +449,6 @@ function renderMatchBreakdown(matchItems) {
       const scoreItems = getGroupedBetStats(match.records, (item) => normalizeScore(item.note)).sort(
         (a, b) => b.count - a.count || b.amount - a.amount
       );
-      const topScores = scoreItems
-        .map(
-          (score) => `
-            <div class="score-chip">
-              <strong>${escapeHtml(score.label)}</strong>
-              <span>${score.count} 筆 · 均賠 ${score.averageOdds.toFixed(2)}</span>
-            </div>
-          `
-        )
-        .join("");
       const memberRows = match.records
         .slice()
         .sort((a, b) => String(a.member).localeCompare(String(b.member), "zh-Hant"))
@@ -453,10 +469,12 @@ function renderMatchBreakdown(matchItems) {
           <div class="match-card-header">
             <div>
               <h3>${escapeHtml(match.label)}</h3>
-              <p>${match.count} 筆 · ${match.memberCount} 人 · ${formatCurrency(match.amount)} · 平均賠率 ${match.averageOdds.toFixed(2)}</p>
+              <p>${escapeHtml(match.records[0]?.date || "日期未填")} · ${match.count} 筆 · ${match.memberCount} 人 · ${formatCurrency(match.amount)} · 平均賠率 ${match.averageOdds.toFixed(2)}</p>
             </div>
           </div>
-          <div class="score-strip">${topScores}</div>
+          <div class="match-score-chart">
+            ${getPieChartMarkup(scoreItems)}
+          </div>
           <div class="compact-table-wrap">
             <table class="compact-table">
               <thead>
@@ -477,15 +495,12 @@ function renderMatchBreakdown(matchItems) {
 }
 
 function renderVisualStats() {
-  const byMatch = getGroupedBetStats(records, (item) => item.match || "未填寫").sort(
-    (a, b) => b.count - a.count || b.amount - a.amount
-  );
-  const byScore = getGroupedBetStats(records, (item) => normalizeScore(item.note)).sort(
-    (a, b) => b.count - a.count || b.amount - a.amount
-  );
-
-  renderPieChart(matchChart, byMatch, "還沒有場次資料");
-  renderPieChart(scoreChart, byScore, "還沒有比數資料");
+  const byMatch = getGroupedBetStats(
+    records,
+    (item) => normalizeMatchKey(item.match)
+  )
+    .map((entry) => ({ ...entry, label: entry.records[0]?.match || "未填寫" }))
+    .sort((a, b) => String(b.records[0]?.date).localeCompare(String(a.records[0]?.date)) || b.count - a.count);
   renderMatchBreakdown(byMatch);
 }
 
@@ -693,7 +708,9 @@ form.addEventListener("submit", async (event) => {
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
     result: String(formData.get("result") || "pending"),
-    note: String(formData.get("note") || "").trim(),
+    predictedHome: Number(formData.get("homeScore")),
+    predictedAway: Number(formData.get("awayScore")),
+    note: `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`,
   };
 
   if (!entry.member || !entry.date || !entry.match) {
@@ -743,6 +760,7 @@ exportBtn.addEventListener("click", () => {
 });
 
 matchInput.addEventListener("change", updateMatchMode);
+manualMatchInput.addEventListener("input", updateMatchMode);
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 
 googleLoginBtn.addEventListener("click", async () => {
