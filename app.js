@@ -1,5 +1,4 @@
 const STORAGE_KEY = "fifa-bet-tracker-v1";
-const SHARED_DOCUMENT = "shared";
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
 const ADMIN_UID = "qnPcedb81rXsq5o6BjMS4FiqycZ2";
@@ -83,7 +82,7 @@ const LEGACY_FIXTURES = [
   },
 ];
 
-if (migrateLegacyRecordDates()) {
+if (migrateLegacyRecordDates().length) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
 
@@ -108,16 +107,18 @@ function loadRecords() {
   }
 }
 
-async function saveRecords() {
+async function saveRecords(changedRecords = records) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 
-  if (!auth?.currentUser || !firestore) return;
+  if (!auth?.currentUser || !firestore || !changedRecords.length) return;
 
   try {
-    await firestore.collection("betRecords").doc(SHARED_DOCUMENT).set({
-      records,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    const uniqueRecords = Array.from(new Map(changedRecords.map((record) => [record.id, record])).values());
+    const batch = firestore.batch();
+    uniqueRecords.forEach((record) => {
+      batch.set(firestore.collection("bets").doc(record.id), record);
     });
+    await batch.commit();
   } catch (error) {
     console.error("雲端同步失敗：", error);
     window.alert(`資料已保存在本機，但雲端同步失敗：${error.message}`);
@@ -161,6 +162,16 @@ function getEspnRangeForLocalDate(dateValue) {
   const previous = new Date(selected);
   previous.setDate(previous.getDate() - 1);
   return `${toEspnDateValue(previous)}-${toEspnDateValue(selected)}`;
+}
+
+async function deleteRecord(recordId) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  if (!auth?.currentUser || !firestore) return;
+  await firestore.collection("bets").doc(recordId).delete();
+}
+
+function mergeChangedRecords(...groups) {
+  return Array.from(new Map(groups.flat().map((record) => [record.id, record])).values());
 }
 
 function getResultLabel(result) {
@@ -265,7 +276,7 @@ function isCurrentUserAdmin() {
 }
 
 function migrateLegacyRecordDates() {
-  let changed = false;
+  const changedRecords = [];
   records = records.map((record) => {
     const legacyFixture = getLegacyFixture(record.match);
     const migrated = {
@@ -281,24 +292,23 @@ function migrateLegacyRecordDates() {
       && migrated.matchDate === record.matchDate
       && migrated.date === record.date
     ) return record;
-    changed = true;
+    changedRecords.push(migrated);
     return migrated;
   });
-  return changed;
+  return changedRecords;
 }
 
 function reconcileRecordsWithMatches(matches) {
-  if (!matches.length) return false;
+  if (!matches.length) return [];
   const byId = new Map(matches.map((match) => [match.id, match]));
   const byKey = new Map(matches.map((match) => [normalizeMatchKey(match.label), match]));
-  let changed = false;
+  const changedRecords = [];
 
   records = records.map((record) => {
     const matched = byId.get(String(record.matchId || "")) || byKey.get(normalizeMatchKey(record.match));
     if (!matched) return record;
     if (record.matchId === matched.id && record.match === matched.label && record.matchDate === matched.date) return record;
-    changed = true;
-    return {
+    const alignedRecord = {
       ...record,
       matchId: matched.id,
       match: matched.label,
@@ -306,9 +316,11 @@ function reconcileRecordsWithMatches(matches) {
       date: matched.date,
       alignedAt: new Date().toISOString(),
     };
+    changedRecords.push(alignedRecord);
+    return alignedRecord;
   });
 
-  return changed;
+  return changedRecords;
 }
 
 function getGroupedBetStats(items, keyGetter) {
@@ -509,9 +521,10 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
     const settlementMatches = mergeMatches(availableMatches, pendingMatches);
     const aligned = reconcileRecordsWithMatches(settlementMatches);
     const settled = applyMatchResultsToRecords(settlementMatches);
+    const changedRecords = mergeChangedRecords(aligned, settled);
     render();
-    if ((aligned || settled) && saveAfterUpdate) await saveRecords();
-    syncHint.textContent = aligned
+    if (changedRecords.length && saveAfterUpdate) await saveRecords(changedRecords);
+    syncHint.textContent = aligned.length
       ? "已更新賽程，並自動對齊舊紀錄的場次、名稱與日期。"
       : `已更新 ${selectedDate} 賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
   } catch (error) {
@@ -530,7 +543,7 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
 
 function applyMatchResultsToRecords(matches) {
   const resultsById = new Map(matches.filter((match) => match.completed && match.regulationScore).map((match) => [match.id, match]));
-  let changed = false;
+  const changedRecords = [];
 
   records = records.map((record) => {
     const match = resultsById.get(String(record.matchId || ""));
@@ -540,11 +553,12 @@ function applyMatchResultsToRecords(matches) {
     if (!match || !predictedScore || record.result !== "pending") return record;
 
     const result = predictedScore === match.regulationScore ? "win" : "loss";
-    changed = true;
-    return { ...record, result, settledScore: match.regulationScore, settledAt: new Date().toISOString() };
+    const settledRecord = { ...record, result, settledScore: match.regulationScore, settledAt: new Date().toISOString() };
+    changedRecords.push(settledRecord);
+    return settledRecord;
   });
 
-  return changed;
+  return changedRecords;
 }
 
 function buildPieSlices(items) {
@@ -966,16 +980,10 @@ function startFirestoreSync() {
   stopFirestoreSync?.();
 
   stopFirestoreSync = firestore
-    .collection("betRecords")
-    .doc(SHARED_DOCUMENT)
+    .collection("bets")
     .onSnapshot(
       async (snapshot) => {
-        if (!snapshot.exists) {
-          if (records.length) await saveRecords();
-          return;
-        }
-
-        const cloudRecords = snapshot.data()?.records;
+        const cloudRecords = snapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
         if (Array.isArray(cloudRecords)) {
           records = cloudRecords;
           const migrated = migrateLegacyRecordDates();
@@ -988,9 +996,10 @@ function startFirestoreSync() {
           }
           const aligned = reconcileRecordsWithMatches(settlementMatches);
           const settled = applyMatchResultsToRecords(settlementMatches);
+          const changedRecords = mergeChangedRecords(migrated, aligned, settled);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
-          if (migrated || aligned || settled) await saveRecords();
+          if (changedRecords.length) await saveRecords(changedRecords);
         }
       },
       (error) => {
@@ -1039,9 +1048,10 @@ form.addEventListener("submit", async (event) => {
   submitButton.textContent = "儲存中...";
   try {
     records.unshift(entry);
-    applyMatchResultsToRecords(availableMatches);
+    const settled = applyMatchResultsToRecords(availableMatches);
     render();
-    await saveRecords();
+    const savedEntry = records.find((record) => record.id === entry.id) || entry;
+    await saveRecords(mergeChangedRecords([savedEntry], settled));
   } finally {
     submitButton.disabled = false;
     submitButton.innerHTML = '加入紀錄 <span aria-hidden="true">→</span>';
@@ -1059,7 +1069,7 @@ recordsBody.addEventListener("click", async (event) => {
 
   records = records.filter((item) => item.id !== button.dataset.id);
   render();
-  await saveRecords();
+  await deleteRecord(button.dataset.id);
 });
 
 exportBtn.addEventListener("click", () => {
