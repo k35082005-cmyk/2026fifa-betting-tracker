@@ -63,7 +63,7 @@ const LEGACY_FIXTURES = [
     key: "portugal-croatia",
     label: "葡萄牙 VS 克羅埃西亞",
     matchDate: "2026-07-03",
-    teams: [["葡萄牙", "portugal"], ["克羅埃西亞", "克罗地亚", "croatia"]],
+    teams: [["葡萄牙", "portugal"], ["克羅埃西亞", "克羅地亞", "克罗地亚", "croatia"]],
   },
   {
     key: "switzerland-algeria",
