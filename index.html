@@ -2,116 +2,131 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#07111f" />
-    <title>2026 FIFA 運彩記錄中心</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f5f2" />
+    <meta name="description" content="簡潔的 2026 世界盃下注紀錄與統計工具" />
+    <title>2026 FIFA｜下注紀錄</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <main class="app-shell">
       <header class="hero">
-        <div class="hero-top">
-          <div>
-            <p class="eyebrow">共用帳號 · 小組管理</p>
-            <h1>2026 FIFA 運彩記錄中心</h1>
+        <div class="hero-copy">
+          <p class="eyebrow">WORLD CUP 2026 · BET LOG</p>
+          <h1>下注紀錄</h1>
+          <p>把每一筆下注、賠率與結果放在同一個乾淨的地方。</p>
+        </div>
+
+        <div class="account">
+          <span id="authStatus" class="auth-status" aria-live="polite">未登入</span>
+          <div class="auth-actions">
+            <button id="googleLoginBtn" class="button button-dark" type="button">使用 Google 登入</button>
+            <button id="logoutBtn" class="button button-light" type="button" hidden>登出</button>
           </div>
-          <div id="authStatus" class="auth-status">尚未登入</div>
-        </div>
-        <p class="hero-copy">
-          快速記錄每個人、每一天的下注內容，讓你們一起算錢、追結果。
-        </p>
-        <div id="authActions" class="auth-actions">
-          <button id="googleLoginBtn" class="primary-btn" type="button">使用 Google 登入</button>
-          <button id="logoutBtn" class="ghost-btn" type="button">登出</button>
-        </div>
-        <div class="hero-actions">
-          <button id="resetDataBtn" class="ghost-btn" type="button">清空資料</button>
-          <button id="exportBtn" class="primary-btn" type="button">匯出 JSON</button>
         </div>
       </header>
 
-      <section class="controls">
-        <div class="card form-card">
-          <h2>新增投注</h2>
+      <section class="toolbar" aria-label="資料操作">
+        <p id="syncHint">未登入時，資料只會儲存在這台裝置。</p>
+        <div>
+          <button id="exportBtn" class="text-button" type="button">匯出 JSON</button>
+          <button id="resetDataBtn" class="text-button danger-text" type="button">清空資料</button>
+        </div>
+      </section>
+
+      <section class="dashboard">
+        <article class="card form-card">
+          <div class="section-title">
+            <span>01</span>
+            <h2>新增紀錄</h2>
+          </div>
+
           <form id="betForm">
-            <div class="grid">
+            <div class="form-grid">
               <label>
-                <span>下注人</span>
-                <input id="memberInput" name="member" type="text" placeholder="例如：阿哲" required />
+                <span>成員</span>
+                <input id="memberInput" name="member" type="text" placeholder="例如：小明" autocomplete="name" required />
               </label>
               <label>
                 <span>日期</span>
                 <input id="dateInput" name="date" type="date" required />
               </label>
-              <label>
-                <span>賽事 / 玩法</span>
-                <input id="matchInput" name="match" type="text" placeholder="例如：巴西 vs 阿根廷" required />
+              <label class="wide-field">
+                <span>賽事 / 隊伍</span>
+                <input id="matchInput" name="match" type="text" placeholder="例如：德國 vs 日本" required />
               </label>
               <label>
                 <span>下注金額</span>
-                <input id="amountInput" name="amount" type="number" min="0" step="1" required />
+                <input id="amountInput" name="amount" type="number" min="0" step="1" placeholder="0" required />
               </label>
               <label>
                 <span>賠率</span>
-                <input id="oddsInput" name="odds" type="number" min="0" step="0.01" required />
+                <input id="oddsInput" name="odds" type="number" min="0" step="0.01" placeholder="1.00" required />
               </label>
               <label>
                 <span>結果</span>
                 <select id="resultInput" name="result">
-                  <option value="pending">未結算</option>
+                  <option value="pending">未開獎</option>
                   <option value="win">贏</option>
                   <option value="loss">輸</option>
                 </select>
               </label>
+              <label class="wide-field">
+                <span>備註</span>
+                <textarea id="noteInput" name="note" rows="3" placeholder="選填"></textarea>
+              </label>
             </div>
-            <label class="full-width">
-              <span>備註</span>
-              <textarea id="noteInput" name="note" rows="3" placeholder="可填下注內容、賠率說明或分帳備註"></textarea>
-            </label>
-            <button class="primary-btn submit-btn" type="submit">新增記錄</button>
+            <button class="button button-dark submit-button" type="submit">加入紀錄 <span aria-hidden="true">→</span></button>
           </form>
-        </div>
+        </article>
 
-        <div class="card stats-card">
-          <h2>統計摘要</h2>
+        <aside class="card stats-card">
+          <div class="section-title">
+            <span>02</span>
+            <h2>總覽</h2>
+          </div>
           <div id="summaryStats" class="summary-grid"></div>
-        </div>
+        </aside>
       </section>
 
-      <section class="card">
+      <section class="card records-card">
         <div class="section-header">
-          <h2>投注紀錄</h2>
+          <div class="section-title">
+            <span>03</span>
+            <h2>紀錄明細</h2>
+          </div>
           <div class="filters">
-            <input id="searchInput" type="search" placeholder="搜尋下注人 / 賽事" />
-            <select id="filterMember">
-              <option value="all">所有人</option>
+            <input id="searchInput" type="search" placeholder="搜尋成員或賽事" aria-label="搜尋紀錄" />
+            <select id="filterMember" aria-label="依成員篩選">
+              <option value="all">所有成員</option>
             </select>
-            <select id="filterResult">
-              <option value="all">所有狀態</option>
-              <option value="pending">未結算</option>
+            <select id="filterResult" aria-label="依結果篩選">
+              <option value="all">所有結果</option>
+              <option value="pending">未開獎</option>
               <option value="win">贏</option>
               <option value="loss">輸</option>
             </select>
           </div>
         </div>
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>下注人</th>
+                <th>成員</th>
                 <th>日期</th>
-                <th>賽事 / 玩法</th>
+                <th>賽事 / 隊伍</th>
                 <th>金額</th>
                 <th>賠率</th>
                 <th>結果</th>
                 <th>備註</th>
-                <th>操作</th>
+                <th><span class="sr-only">操作</span></th>
               </tr>
             </thead>
             <tbody id="recordsBody"></tbody>
@@ -119,20 +134,23 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>分組統計</h2>
+      <section class="card analysis-card">
+        <div class="section-title">
+          <span>04</span>
+          <h2>分類統計</h2>
+        </div>
         <div class="mini-grid">
           <div class="panel">
-            <h3>按人分組</h3>
+            <h3>依成員</h3>
             <div id="memberStats"></div>
           </div>
           <div class="panel">
-            <h3>按日期分組</h3>
+            <h3>依日期</h3>
             <div id="dateStats"></div>
           </div>
         </div>
       </section>
-    </div>
+    </main>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

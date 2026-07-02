@@ -1,43 +1,60 @@
-const STORAGE_KEY = 'fifa-bet-tracker-v1';
+const STORAGE_KEY = "fifa-bet-tracker-v1";
+const SHARED_DOCUMENT = "shared";
 
-const form = document.getElementById('betForm');
-const authStatus = document.getElementById('authStatus');
-const googleLoginBtn = document.getElementById('googleLoginBtn');
-const logoutBtn = document.getElementById('logoutBtn');
-const recordsBody = document.getElementById('recordsBody');
-const summaryStats = document.getElementById('summaryStats');
-const memberStats = document.getElementById('memberStats');
-const dateStats = document.getElementById('dateStats');
-const filterMember = document.getElementById('filterMember');
-const filterResult = document.getElementById('filterResult');
-const searchInput = document.getElementById('searchInput');
-const resetDataBtn = document.getElementById('resetDataBtn');
-const exportBtn = document.getElementById('exportBtn');
+const form = document.getElementById("betForm");
+const authStatus = document.getElementById("authStatus");
+const syncHint = document.getElementById("syncHint");
+const googleLoginBtn = document.getElementById("googleLoginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const recordsBody = document.getElementById("recordsBody");
+const summaryStats = document.getElementById("summaryStats");
+const memberStats = document.getElementById("memberStats");
+const dateStats = document.getElementById("dateStats");
+const filterMember = document.getElementById("filterMember");
+const filterResult = document.getElementById("filterResult");
+const searchInput = document.getElementById("searchInput");
+const resetDataBtn = document.getElementById("resetDataBtn");
+const exportBtn = document.getElementById("exportBtn");
 
 let records = loadRecords();
 let auth = null;
 let firestore = null;
+let stopFirestoreSync = null;
 
-if (window.firebase) {
-  firebase.initializeApp(window.__FIREBASE_CONFIG__);
-  auth = firebase.auth();
-  firestore = firebase.firestore();
+try {
+  if (window.firebase && window.__FIREBASE_CONFIG__?.apiKey) {
+    firebase.initializeApp(window.__FIREBASE_CONFIG__);
+    auth = firebase.auth();
+    firestore = firebase.firestore();
+  }
+} catch (error) {
+  console.error("Firebase 初始化失敗：", error);
 }
 
 function loadRecords() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    const parsed = saved ? JSON.parse(saved) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.error('無法讀取資料', error);
+    console.error("無法讀取本機資料：", error);
     return [];
   }
 }
 
-function saveRecords() {
+async function saveRecords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  if (auth?.currentUser && firestore) {
-    firestore.collection('betRecords').doc('shared').set({ records, updatedAt: new Date().toISOString() }, { merge: true });
+
+  if (!auth?.currentUser || !firestore) return;
+
+  try {
+    await firestore.collection("betRecords").doc(SHARED_DOCUMENT).set({
+      records,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.error("雲端同步失敗：", error);
+    window.alert(`資料已保存在本機，但雲端同步失敗：${error.message}`);
   }
 }
 
@@ -45,300 +62,282 @@ function createId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function formatCurrency(amount) {
-  return new Intl.NumberFormat('zh-TW', {
-    style: 'currency',
-    currency: 'TWD',
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "TWD",
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(Number(amount) || 0);
 }
 
 function getResultLabel(result) {
-  switch (result) {
-    case 'win':
-      return '贏';
-    case 'loss':
-      return '輸';
-    default:
-      return '未結算';
-  }
-}
-
-function getResultClass(result) {
-  switch (result) {
-    case 'win':
-      return 'win';
-    case 'loss':
-      return 'loss';
-    default:
-      return 'pending';
-  }
+  return { win: "贏", loss: "輸", pending: "未開獎" }[result] || "未開獎";
 }
 
 function calculateSummary(items) {
-  const totalCount = items.length;
-  const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const pendingCount = items.filter((item) => item.result === 'pending').length;
-  const winCount = items.filter((item) => item.result === 'win').length;
-  const lossCount = items.filter((item) => item.result === 'loss').length;
-
   return {
-    totalCount,
-    totalAmount,
-    pendingCount,
-    winCount,
-    lossCount,
+    totalCount: items.length,
+    totalAmount: items.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    pendingCount: items.filter((item) => item.result === "pending").length,
+    completedCount: items.filter((item) => item.result === "win" || item.result === "loss").length,
   };
 }
 
-function buildMemberStats(items) {
-  const map = new Map();
+function groupStats(items, key) {
+  const grouped = new Map();
+
   items.forEach((item) => {
-    const existing = map.get(item.member) || { member: item.member, count: 0, amount: 0 };
+    const label = item[key] || "未填寫";
+    const existing = grouped.get(label) || { label, count: 0, amount: 0 };
     existing.count += 1;
     existing.amount += Number(item.amount || 0);
-    map.set(item.member, existing);
+    grouped.set(label, existing);
   });
 
-  return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
-}
-
-function buildDateStats(items) {
-  const map = new Map();
-  items.forEach((item) => {
-    const existing = map.get(item.date) || { date: item.date, count: 0, amount: 0 };
-    existing.count += 1;
-    existing.amount += Number(item.amount || 0);
-    map.set(item.date, existing);
-  });
-
-  return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  return Array.from(grouped.values());
 }
 
 function renderSummary() {
   const summary = calculateSummary(records);
+  const items = [
+    ["總筆數", summary.totalCount],
+    ["下注總額", formatCurrency(summary.totalAmount)],
+    ["未開獎", summary.pendingCount],
+    ["已結算", summary.completedCount],
+  ];
 
-  summaryStats.innerHTML = `
-    <div class="summary-item">
-      <span>總筆數</span>
-      <strong>${summary.totalCount}</strong>
-    </div>
-    <div class="summary-item">
-      <span>總下注金額</span>
-      <strong>${formatCurrency(summary.totalAmount)}</strong>
-    </div>
-    <div class="summary-item">
-      <span>未結算</span>
-      <strong>${summary.pendingCount}</strong>
-    </div>
-    <div class="summary-item">
-      <span>已結算</span>
-      <strong>${summary.winCount + summary.lossCount}</strong>
-    </div>
-  `;
+  summaryStats.innerHTML = items
+    .map(
+      ([label, value]) => `
+        <div class="summary-item">
+          <span>${label}</span>
+          <strong>${value}</strong>
+        </div>
+      `
+    )
+    .join("");
 }
 
-function renderStatsPanels() {
-  const memberList = buildMemberStats(records);
-  const dateList = buildDateStats(records);
-
-  memberStats.innerHTML = memberList.length
-    ? memberList
-        .map(
-          (entry) => {
-            const net = entry.amount * 0.9;
-            return `
-              <div class="stat-row">
-                <span>${entry.member}</span>
-                <strong>${entry.count} 筆 · ${formatCurrency(entry.amount)} · 淨值 ${formatCurrency(net)}</strong>
-              </div>
-            `;
-          }
-        )
-        .join('')
-    : '<p class="empty">目前還沒有任何投注資料。</p>';
-
-  dateStats.innerHTML = dateList.length
-    ? dateList
+function renderStatList(target, items) {
+  target.innerHTML = items.length
+    ? items
         .map(
           (entry) => `
             <div class="stat-row">
-              <span>${entry.date}</span>
+              <span>${escapeHtml(entry.label)}</span>
               <strong>${entry.count} 筆 · ${formatCurrency(entry.amount)}</strong>
             </div>
           `
         )
-        .join('')
-    : '<p class="empty">目前還沒有任何投注資料。</p>';
+        .join("")
+    : '<p class="empty">還沒有資料</p>';
+}
+
+function renderStatsPanels() {
+  const byMember = groupStats(records, "member").sort((a, b) => b.amount - a.amount);
+  const byDate = groupStats(records, "date").sort((a, b) => b.label.localeCompare(a.label));
+  renderStatList(memberStats, byMember);
+  renderStatList(dateStats, byDate);
 }
 
 function renderRecords() {
   const searchText = searchInput.value.trim().toLowerCase();
-  const memberFilter = filterMember.value;
-  const resultFilter = filterResult.value;
+  const memberValue = filterMember.value;
+  const resultValue = filterResult.value;
 
-  const filtered = records.filter((item) => {
-    const matchesSearch =
-      item.member.toLowerCase().includes(searchText) || item.match.toLowerCase().includes(searchText);
-    const matchesMember = memberFilter === 'all' || item.member === memberFilter;
-    const matchesResult = resultFilter === 'all' || item.result === resultFilter;
-    return matchesSearch && matchesMember && matchesResult;
-  });
+  const filtered = records
+    .filter((item) => {
+      const member = String(item.member || "");
+      const match = String(item.match || "");
+      return (
+        (member.toLowerCase().includes(searchText) || match.toLowerCase().includes(searchText)) &&
+        (memberValue === "all" || member === memberValue) &&
+        (resultValue === "all" || item.result === resultValue)
+      );
+    })
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
   if (!filtered.length) {
-    recordsBody.innerHTML = '<tr><td colspan="8" class="empty">沒有符合條件的記錄。</td></tr>';
+    recordsBody.innerHTML = '<tr><td colspan="8" class="empty">找不到符合條件的紀錄</td></tr>';
     return;
   }
 
   recordsBody.innerHTML = filtered
-    .sort((a, b) => b.date.localeCompare(a.date))
     .map(
       (item) => `
         <tr>
-          <td>${item.member}</td>
-          <td>${item.date}</td>
-          <td>${item.match}</td>
-          <td>${formatCurrency(Number(item.amount || 0))}</td>
+          <td>${escapeHtml(item.member)}</td>
+          <td>${escapeHtml(item.date)}</td>
+          <td>${escapeHtml(item.match)}</td>
+          <td>${formatCurrency(item.amount)}</td>
           <td>${Number(item.odds || 0).toFixed(2)}</td>
-          <td><span class="badge ${getResultClass(item.result)}">${getResultLabel(item.result)}</span></td>
-          <td>${item.note || '—'}</td>
-          <td><button class="delete-btn" data-id="${item.id}" type="button">刪除</button></td>
+          <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
+          <td>${escapeHtml(item.note || "—")}</td>
+          <td><button class="delete-button" data-id="${escapeHtml(item.id)}" type="button">刪除</button></td>
         </tr>
       `
     )
-    .join('');
+    .join("");
 }
 
-function updateAuthUI() {
-  if (!auth?.currentUser) {
-    authStatus.textContent = '尚未登入';
-    googleLoginBtn.style.display = 'inline-flex';
-    logoutBtn.style.display = 'none';
-    return;
-  }
-
-  authStatus.textContent = `已登入：${auth.currentUser.displayName || auth.currentUser.email || auth.currentUser.uid}`;
-  googleLoginBtn.style.display = 'none';
-  logoutBtn.style.display = 'inline-flex';
-}
-
-function syncFromFirestore() {
-  if (!auth?.currentUser || !firestore) return;
-  firestore.collection('betRecords').doc('shared').onSnapshot((doc) => {
-    const data = doc.data();
-    if (data?.records) {
-      records = data.records;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      render();
-    }
-  });
+function populateMemberFilter() {
+  const members = Array.from(new Set(records.map((item) => item.member).filter(Boolean))).sort();
+  const currentValue = filterMember.value;
+  filterMember.innerHTML =
+    '<option value="all">所有成員</option>' +
+    members.map((member) => `<option value="${escapeHtml(member)}">${escapeHtml(member)}</option>`).join("");
+  filterMember.value = members.includes(currentValue) ? currentValue : "all";
 }
 
 function render() {
   renderSummary();
   renderStatsPanels();
-  renderRecords();
   populateMemberFilter();
+  renderRecords();
 }
 
-function populateMemberFilter() {
-  const members = Array.from(new Set(records.map((item) => item.member))).sort();
-  const currentValue = filterMember.value;
-  filterMember.innerHTML = '<option value="all">所有人</option>' + members.map((member) => `<option value="${member}">${member}</option>`).join('');
-  filterMember.value = members.includes(currentValue) ? currentValue : 'all';
+function updateAuthUI(user = auth?.currentUser) {
+  const isLoggedIn = Boolean(user);
+  authStatus.textContent = isLoggedIn ? user.displayName || user.email || "已登入" : "未登入";
+  authStatus.classList.toggle("is-online", isLoggedIn);
+  googleLoginBtn.hidden = isLoggedIn;
+  logoutBtn.hidden = !isLoggedIn;
+  syncHint.textContent = isLoggedIn
+    ? "已連接共享雲端資料；所有登入成員會看到相同紀錄。"
+    : "未登入時，資料只會儲存在這台裝置。";
 }
 
-form.addEventListener('submit', (event) => {
+function startFirestoreSync() {
+  if (!auth?.currentUser || !firestore) return;
+  stopFirestoreSync?.();
+
+  stopFirestoreSync = firestore
+    .collection("betRecords")
+    .doc(SHARED_DOCUMENT)
+    .onSnapshot(
+      async (snapshot) => {
+        if (!snapshot.exists) {
+          if (records.length) await saveRecords();
+          return;
+        }
+
+        const cloudRecords = snapshot.data()?.records;
+        if (Array.isArray(cloudRecords)) {
+          records = cloudRecords;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+          render();
+        }
+      },
+      (error) => {
+        console.error("無法讀取雲端資料：", error);
+        syncHint.textContent = `雲端同步失敗：${error.message}`;
+      }
+    );
+}
+
+form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(form);
   const entry = {
     id: createId(),
-    member: String(formData.get('member')).trim(),
-    date: String(formData.get('date')).trim(),
-    match: String(formData.get('match')).trim(),
-    amount: Number(formData.get('amount')),
-    odds: Number(formData.get('odds')),
-    result: String(formData.get('result')).trim(),
-    note: String(formData.get('note')).trim(),
+    member: String(formData.get("member") || "").trim(),
+    date: String(formData.get("date") || "").trim(),
+    match: String(formData.get("match") || "").trim(),
+    amount: Number(formData.get("amount")),
+    odds: Number(formData.get("odds")),
+    result: String(formData.get("result") || "pending"),
+    note: String(formData.get("note") || "").trim(),
   };
 
   if (!entry.member || !entry.date || !entry.match) {
-    alert('請完整填寫下注人、日期與賽事 / 玩法。');
+    window.alert("請填寫成員、日期與賽事。");
     return;
   }
 
   records.unshift(entry);
-  saveRecords();
+  render();
+  await saveRecords();
   form.reset();
-  document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
-  render();
+  document.getElementById("dateInput").value = new Date().toISOString().slice(0, 10);
 });
 
-recordsBody.addEventListener('click', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLButtonElement)) return;
-  const id = target.getAttribute('data-id');
-  if (!id) return;
-  const confirmed = window.confirm('確定要刪除此筆記錄嗎？');
-  if (!confirmed) return;
-  records = records.filter((item) => item.id !== id);
-  saveRecords();
+recordsBody.addEventListener("click", async (event) => {
+  const button = event.target.closest(".delete-button");
+  if (!button) return;
+  if (!window.confirm("確定要刪除這筆紀錄嗎？")) return;
+
+  records = records.filter((item) => item.id !== button.dataset.id);
   render();
+  await saveRecords();
 });
 
-resetDataBtn.addEventListener('click', () => {
-  const confirmed = window.confirm('確定要清空所有投注記錄嗎？');
-  if (!confirmed) return;
+resetDataBtn.addEventListener("click", async () => {
+  if (!window.confirm("確定要清空所有紀錄嗎？這個動作無法復原。")) return;
   records = [];
-  saveRecords();
   render();
+  await saveRecords();
 });
 
-exportBtn.addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+exportBtn.addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
+  const link = document.createElement("a");
   link.href = url;
-  link.download = 'fifa-bet-records.json';
+  link.download = "fifa-bet-records.json";
   link.click();
   URL.revokeObjectURL(url);
 });
 
 [searchInput, filterMember, filterResult].forEach((element) => {
-  element.addEventListener('input', renderRecords);
-  element.addEventListener('change', renderRecords);
+  element.addEventListener("input", renderRecords);
+  element.addEventListener("change", renderRecords);
 });
 
-document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
+googleLoginBtn.addEventListener("click", async () => {
+  if (!auth) {
+    window.alert("Firebase 尚未正確初始化，請檢查 firebase-config.js。");
+    return;
+  }
 
-googleLoginBtn.addEventListener('click', async () => {
-  const provider = new firebase.auth.GoogleAuthProvider();
   try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
     await auth.signInWithPopup(provider);
-    updateAuthUI();
-    syncFromFirestore();
   } catch (error) {
-    alert('Google 登入失敗：' + error.message);
+    console.error("Google 登入失敗：", error);
+    window.alert(`Google 登入失敗：${error.message}`);
   }
 });
 
-logoutBtn.addEventListener('click', async () => {
+logoutBtn.addEventListener("click", async () => {
   try {
-    await auth.signOut();
-    updateAuthUI();
+    stopFirestoreSync?.();
+    stopFirestoreSync = null;
+    await auth?.signOut();
   } catch (error) {
-    alert('登出失敗：' + error.message);
+    window.alert(`登出失敗：${error.message}`);
   }
 });
 
-auth?.onAuthStateChanged((user) => {
-  if (user) {
-    updateAuthUI();
-    syncFromFirestore();
-  } else {
-    updateAuthUI();
-  }
-});
+if (auth) {
+  auth.onAuthStateChanged((user) => {
+    updateAuthUI(user);
+    if (user) startFirestoreSync();
+  });
+} else {
+  googleLoginBtn.disabled = true;
+  googleLoginBtn.textContent = "Firebase 未設定";
+  updateAuthUI(null);
+}
 
-updateAuthUI();
+document.getElementById("dateInput").value = new Date().toISOString().slice(0, 10);
 render();
