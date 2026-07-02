@@ -166,25 +166,29 @@ function getResultLabel(result) {
   return { win: "贏", loss: "輸", pending: "未開獎" }[result] || "未開獎";
 }
 
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
 function getRecordPayout(item) {
   if (item.result !== "win") return 0;
-  return Number(item.amount || 0) * Number(item.odds || 0);
+  return roundMoney(Number(item.amount || 0) * Number(item.odds || 0));
 }
 
 function getSettlementStats(items) {
   return items.reduce(
     (stats, item) => {
       const amount = Number(item.amount || 0);
-      stats.totalAmount += amount;
+      stats.totalAmount = roundMoney(stats.totalAmount + amount);
 
       if (item.result === "pending") {
-        stats.pendingAmount += amount;
+        stats.pendingAmount = roundMoney(stats.pendingAmount + amount);
         return stats;
       }
 
       if (item.result === "win" || item.result === "loss") {
-        stats.settledAmount += amount;
-        stats.payout += getRecordPayout(item);
+        stats.settledAmount = roundMoney(stats.settledAmount + amount);
+        stats.payout = roundMoney(stats.payout + getRecordPayout(item));
       }
 
       return stats;
@@ -195,7 +199,7 @@ function getSettlementStats(items) {
 
 function getNetAmount(items) {
   const stats = getSettlementStats(items);
-  return stats.payout - stats.settledAmount;
+  return roundMoney(stats.payout - stats.settledAmount);
 }
 
 function getMoneyToneClass(amount) {
@@ -209,7 +213,7 @@ function calculateSummary(items) {
   return {
     totalCount: items.length,
     totalAmount: settlement.totalAmount,
-    netAmount: settlement.payout - settlement.settledAmount,
+    netAmount: roundMoney(settlement.payout - settlement.settledAmount),
     pendingCount: items.filter((item) => item.result === "pending").length,
     completedCount: items.filter((item) => item.result === "win" || item.result === "loss").length,
   };
@@ -358,8 +362,9 @@ function calculateRegulationScore(event) {
   const completed = Boolean(status.completed);
   if (!completed) return null;
 
-  const isExtraTimeResult = String(status.name || "").includes("AET") || String(status.detail || "").includes("AET");
-  if (!isExtraTimeResult) {
+  const statusDescription = `${status.name || ""} ${status.detail || ""} ${status.shortDetail || ""}`.toUpperCase();
+  const includesExtraTime = /AET|EXTRA TIME|PEN|PENS/.test(statusDescription);
+  if (!includesExtraTime) {
     return `${Number(home.score || 0)}-${Number(away.score || 0)}`;
   }
 
@@ -470,6 +475,21 @@ async function fetchWorldCupMatches(dateValue) {
     .sort((a, b) => `${a.date} ${a.displayTime}`.localeCompare(`${b.date} ${b.displayTime}`));
 }
 
+async function fetchMatchesForDates(dateValues) {
+  const uniqueDates = Array.from(new Set(dateValues.filter(Boolean)));
+  if (!uniqueDates.length) return [];
+  const groups = await Promise.all(uniqueDates.map((date) => fetchWorldCupMatches(date)));
+  return Array.from(new Map(groups.flat().map((match) => [match.id, match])).values());
+}
+
+function getPendingRecordDates() {
+  return records.filter((record) => record.result === "pending").map((record) => record.matchDate || record.date);
+}
+
+function mergeMatches(...groups) {
+  return Array.from(new Map(groups.flat().map((match) => [match.id, match])).values());
+}
+
 async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
   const selectedDate = matchDateInput.value;
   if (!selectedDate) {
@@ -484,8 +504,10 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
   try {
     availableMatches = await fetchWorldCupMatches(selectedDate);
     populateMatchSelect(availableMatches);
-    const aligned = reconcileRecordsWithMatches(availableMatches);
-    const settled = applyMatchResultsToRecords(availableMatches);
+    const pendingMatches = await fetchMatchesForDates(getPendingRecordDates());
+    const settlementMatches = mergeMatches(availableMatches, pendingMatches);
+    const aligned = reconcileRecordsWithMatches(settlementMatches);
+    const settled = applyMatchResultsToRecords(settlementMatches);
     render();
     if ((aligned || settled) && saveAfterUpdate) await saveRecords();
     syncHint.textContent = aligned
@@ -685,7 +707,7 @@ function getMemberFinanceStats(items) {
 
   return Array.from(grouped.values()).map((entry) => {
     const settlement = getSettlementStats(entry.records);
-    const netAmount = settlement.payout - settlement.settledAmount;
+    const netAmount = roundMoney(settlement.payout - settlement.settledAmount);
     return {
       ...entry,
       ...settlement,
@@ -821,7 +843,7 @@ function getStatsRecords() {
 
 function renderFilteredSummary(items) {
   const settlement = getSettlementStats(items);
-  const netAmount = settlement.payout - settlement.settledAmount;
+  const netAmount = roundMoney(settlement.payout - settlement.settledAmount);
   const dates = items.map((item) => item.matchDate).filter(Boolean).sort();
   const dateRange = dates.length ? dates[0] === dates.at(-1) ? dates[0] : `${dates[0]} ～ ${dates.at(-1)}` : "沒有資料";
   statsRangeLabel.textContent = `統計區間：${dateRange} · ${items.length} 筆紀錄`;
@@ -864,13 +886,13 @@ function renderRecords() {
       (item) => `
         <tr>
           <td>${escapeHtml(item.member)}</td>
-          <td>${escapeHtml(item.createdDate || "—")}</td>
-          <td>${escapeHtml(item.matchDate || "—")}</td>
-          <td>${escapeHtml(item.match)}</td>
-          <td>${formatCurrency(item.amount)}</td>
-          <td>${Number(item.odds || 0).toFixed(2)}</td>
           <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
           <td>${escapeHtml(item.note || "—")}</td>
+          <td>${escapeHtml(item.match)}</td>
+          <td>${Number(item.odds || 0).toFixed(2)}</td>
+          <td>${formatCurrency(item.amount)}</td>
+          <td>${escapeHtml(item.matchDate || "—")}</td>
+          <td>${escapeHtml(item.createdDate || "—")}</td>
           <td>${isCurrentUserAdmin() ? `<button class="delete-button" data-id="${escapeHtml(item.id)}" type="button">刪除</button>` : ""}</td>
         </tr>
       `
@@ -947,8 +969,15 @@ function startFirestoreSync() {
         if (Array.isArray(cloudRecords)) {
           records = cloudRecords;
           const migrated = migrateLegacyRecordDates();
-          const aligned = reconcileRecordsWithMatches(availableMatches);
-          const settled = applyMatchResultsToRecords(availableMatches);
+          let settlementMatches = availableMatches;
+          try {
+            const pendingMatches = await fetchMatchesForDates(getPendingRecordDates());
+            settlementMatches = mergeMatches(availableMatches, pendingMatches);
+          } catch (error) {
+            console.error("無法取得待結算賽事：", error);
+          }
+          const aligned = reconcileRecordsWithMatches(settlementMatches);
+          const settled = applyMatchResultsToRecords(settlementMatches);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
           if (migrated || aligned || settled) await saveRecords();
