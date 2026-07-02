@@ -40,7 +40,7 @@ function loadRecords() {
 function saveRecords() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   if (auth?.currentUser && firestore) {
-    firestore.collection('betRecords').doc(auth.currentUser.uid).set({ records }, { merge: true });
+    firestore.collection('betRecords').doc('shared').set({ records, updatedAt: new Date().toISOString() }, { merge: true });
   }
 }
 
@@ -228,11 +228,11 @@ function updateAuthUI() {
 
 function syncFromFirestore() {
   if (!auth?.currentUser || !firestore) return;
-  firestore.collection('betRecords').doc(auth.currentUser.uid).onSnapshot((doc) => {
+  firestore.collection('betRecords').doc('shared').onSnapshot((doc) => {
     const data = doc.data();
     if (data?.records) {
       records = data.records;
-      saveRecords();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
       render();
     }
   });
