@@ -5,15 +5,29 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // This app intentionally uses one shared document for the whole signed-in group.
-    match /betRecords/shared {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn()
-        && request.resource.data.keys().hasOnly(['records', 'updatedAt'])
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.uid == 'qnPcedb81rXsq5o6BjMS4FiqycZ2';
+    }
+
+    function isValidSharedDocument() {
+      return request.resource.data.keys().hasOnly(['records', 'updatedAt'])
         && request.resource.data.records is list
         && request.resource.data.records.size() <= 500
         && request.resource.data.updatedAt == request.time;
-      allow delete: if false;
+    }
+
+    // This app intentionally uses one shared document for the whole signed-in group.
+    match /betRecords/shared {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidSharedDocument();
+      allow update: if isSignedIn()
+        && isValidSharedDocument()
+        && (
+          isAdmin()
+          || request.resource.data.records.size() >= resource.data.records.size()
+        );
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {

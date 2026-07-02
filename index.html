@@ -38,7 +38,6 @@
         <div>
           <button id="refreshMatchesBtn" class="text-button" type="button">更新賽程/賽果</button>
           <button id="exportBtn" class="text-button" type="button">匯出 JSON</button>
-          <button id="resetDataBtn" class="text-button danger-text" type="button">清空資料</button>
         </div>
       </section>
 
@@ -57,12 +56,12 @@
               </label>
               <label>
                 <span>賽事日期</span>
-                <input id="dateInput" name="date" type="date" readonly required />
+                <input id="matchDateInput" type="date" required />
               </label>
               <label class="wide-field">
                 <span>賽事 / 隊伍</span>
                 <select id="matchInput" name="match" required>
-                  <option value="">載入近 3 天賽事中...</option>
+                  <option value="">請先選擇賽事日期</option>
                 </select>
                 <input id="matchIdInput" name="matchId" type="hidden" />
                 <input id="manualMatchInput" type="text" placeholder="手動輸入賽事，例如：德國 vs 日本" hidden />
@@ -125,7 +124,8 @@
             <thead>
               <tr>
                 <th>成員</th>
-                <th>日期</th>
+                <th>填表日期</th>
+                <th>比賽日期</th>
                 <th>賽事 / 隊伍</th>
                 <th>金額</th>
                 <th>賠率</th>
@@ -146,7 +146,7 @@
           <h2>各場預測比分分布</h2>
         </div>
         <div class="analysis-filters" aria-label="統計篩選">
-          <label><span>日期</span><select id="analysisDateFilter"><option value="all">所有日期</option></select></label>
+          <label><span>比賽日期</span><select id="analysisDateFilter"><option value="all">所有比賽日期</option></select></label>
           <label><span>場次</span><select id="analysisMatchFilter"><option value="all">所有場次</option></select></label>
         </div>
         <p class="section-description">每一場賽事獨立統計，查看成員對該場比分的預測占比。</p>
@@ -158,7 +158,10 @@
           <span>05</span>
           <h2>分類統計</h2>
         </div>
-        <p class="section-description">沿用上方的日期與場次篩選。</p>
+        <div class="analysis-filters stats-filters">
+          <label><span>填表日期</span><select id="statsDateFilter"><option value="all">所有填表日期</option></select></label>
+        </div>
+        <p class="section-description">依系統記錄的填表日期查看投注總覽與成員統計。</p>
         <div id="filteredSummary" class="summary-grid filtered-summary"></div>
         <div class="mini-grid">
           <div class="panel">

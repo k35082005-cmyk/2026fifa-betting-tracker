@@ -2,6 +2,7 @@ const STORAGE_KEY = "fifa-bet-tracker-v1";
 const SHARED_DOCUMENT = "shared";
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
+const ADMIN_UID = "qnPcedb81rXsq5o6BjMS4FiqycZ2";
 
 const form = document.getElementById("betForm");
 const authStatus = document.getElementById("authStatus");
@@ -19,7 +20,6 @@ const dateStats = document.getElementById("dateStats");
 const filterMember = document.getElementById("filterMember");
 const filterResult = document.getElementById("filterResult");
 const searchInput = document.getElementById("searchInput");
-const resetDataBtn = document.getElementById("resetDataBtn");
 const exportBtn = document.getElementById("exportBtn");
 const refreshMatchesBtn = document.getElementById("refreshMatchesBtn");
 const scoreFields = document.getElementById("scoreFields");
@@ -27,10 +27,11 @@ const scoreHint = document.getElementById("scoreHint");
 const homeScoreLabel = document.getElementById("homeScoreLabel");
 const awayScoreLabel = document.getElementById("awayScoreLabel");
 const memberInput = document.getElementById("memberInput");
-const dateInput = document.getElementById("dateInput");
+const matchDateInput = document.getElementById("matchDateInput");
 const recordsToggleSummary = document.getElementById("recordsToggleSummary");
 const analysisDateFilter = document.getElementById("analysisDateFilter");
 const analysisMatchFilter = document.getElementById("analysisMatchFilter");
+const statsDateFilter = document.getElementById("statsDateFilter");
 const filteredSummary = document.getElementById("filteredSummary");
 const submitButton = form.querySelector('[type="submit"]');
 
@@ -49,6 +50,12 @@ let availableMatches = [];
 let auth = null;
 let firestore = null;
 let stopFirestoreSync = null;
+
+const LEGACY_CREATED_DATE = "2026-07-02";
+
+if (migrateLegacyRecordDates()) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
 
 try {
   if (window.firebase && window.__FIREBASE_CONFIG__?.apiKey) {
@@ -119,12 +126,11 @@ function toEspnDateValue(date) {
   return toLocalDateValue(date).replaceAll("-", "");
 }
 
-function getNearThreeDayRange() {
-  const start = new Date();
-  start.setDate(start.getDate() - 1);
-  const end = new Date();
-  end.setDate(end.getDate() + 1);
-  return `${toEspnDateValue(start)}-${toEspnDateValue(end)}`;
+function getEspnRangeForLocalDate(dateValue) {
+  const selected = new Date(`${dateValue}T12:00:00`);
+  const previous = new Date(selected);
+  previous.setDate(previous.getDate() - 1);
+  return `${toEspnDateValue(previous)}-${toEspnDateValue(selected)}`;
 }
 
 function getResultLabel(result) {
@@ -208,6 +214,24 @@ function normalizeMatchKey(match) {
     .join("::");
 }
 
+function isCurrentUserAdmin() {
+  return auth?.currentUser?.uid === ADMIN_UID;
+}
+
+function migrateLegacyRecordDates() {
+  let changed = false;
+  records = records.map((record) => {
+    if (record.createdDate && record.matchDate) return record;
+    changed = true;
+    return {
+      ...record,
+      createdDate: record.createdDate || LEGACY_CREATED_DATE,
+      matchDate: record.matchDate || record.date || "",
+    };
+  });
+  return changed;
+}
+
 function reconcileRecordsWithMatches(matches) {
   if (!matches.length) return false;
   const byId = new Map(matches.map((match) => [match.id, match]));
@@ -217,12 +241,13 @@ function reconcileRecordsWithMatches(matches) {
   records = records.map((record) => {
     const matched = byId.get(String(record.matchId || "")) || byKey.get(normalizeMatchKey(record.match));
     if (!matched) return record;
-    if (record.matchId === matched.id && record.match === matched.label && record.date === matched.date) return record;
+    if (record.matchId === matched.id && record.match === matched.label && record.matchDate === matched.date) return record;
     changed = true;
     return {
       ...record,
       matchId: matched.id,
       match: matched.label,
+      matchDate: matched.date,
       date: matched.date,
       alignedAt: new Date().toISOString(),
     };
@@ -334,6 +359,7 @@ function normalizeEspnMatch(event) {
       hour12: false,
     }),
     statusText: status.shortDetail || status.detail || "未開賽",
+    statusState: status.state || "pre",
     completed: Boolean(status.completed),
     regulationScore: calculateRegulationScore(event),
   };
@@ -343,15 +369,17 @@ function populateMatchSelect(matches) {
   const currentValue = matchInput.value;
   const options = matches
     .map((match) => {
-      const suffix = match.completed && match.regulationScore ? ` · 正規 ${match.regulationScore}` : ` · ${match.statusText}`;
-      return `<option value="${escapeHtml(match.label)}" data-id="${escapeHtml(match.id)}">${escapeHtml(
-        `${match.displayTime} · ${match.label}${suffix}`
+      const statusLabel = match.completed ? "已結束比賽" : match.statusState === "in" ? "進行中" : "未開賽";
+      const scoreLabel = match.completed && match.regulationScore ? ` · 正規 ${match.regulationScore}` : "";
+      const statusClass = match.completed ? "is-completed" : match.statusState === "in" ? "is-live" : "is-scheduled";
+      return `<option class="${statusClass}" value="${escapeHtml(match.label)}" data-id="${escapeHtml(match.id)}">${escapeHtml(
+        `${match.displayTime} · ${match.label}${scoreLabel} · ${statusLabel}`
       )}</option>`;
     })
     .join("");
 
   matchInput.innerHTML = `
-    <option value="">選擇近 3 天賽事</option>
+    <option value="">選擇 ${escapeHtml(matchDateInput.value)} 賽事</option>
     ${options}
     <option value="__manual__">手動輸入其他賽事</option>
   `;
@@ -367,34 +395,44 @@ function updateMatchMode() {
   manualMatchInput.required = isManual;
   matchIdInput.value = isManual ? "" : selectedOption?.dataset.id || "";
   const selectedMatch = availableMatches.find((match) => match.id === matchIdInput.value);
+  matchInput.classList.remove("is-completed", "is-live", "is-scheduled");
+  if (selectedMatch) {
+    matchInput.classList.add(selectedMatch.completed ? "is-completed" : selectedMatch.statusState === "in" ? "is-live" : "is-scheduled");
+  }
   const hasMatch = isManual ? Boolean(manualMatchInput.value.trim()) : Boolean(selectedMatch);
   const manualTeams = manualMatchInput.value.split(/\s+vs\s+/i).map((name) => name.trim());
   homeScoreLabel.textContent = selectedMatch?.homeName || manualTeams[0] || "A 隊";
   awayScoreLabel.textContent = selectedMatch?.awayName || manualTeams[1] || "B 隊";
   scoreFields.disabled = !hasMatch;
   scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（正規時間）` : "請先選擇賽事，系統會帶入兩隊名稱。";
-  dateInput.readOnly = !isManual;
-  if (selectedMatch) dateInput.value = selectedMatch.date;
-  if (isManual && !dateInput.value) dateInput.value = toLocalDateValue();
 }
 
-async function fetchWorldCupMatches() {
-  const url = `${ESPN_SCOREBOARD_URL}?limit=100&dates=${getNearThreeDayRange()}`;
+async function fetchWorldCupMatches(dateValue) {
+  if (!dateValue) return [];
+  const url = `${ESPN_SCOREBOARD_URL}?limit=100&dates=${getEspnRangeForLocalDate(dateValue)}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`賽程 API 回應 ${response.status}`);
   const data = await response.json();
   return (data.events || [])
     .map(normalizeEspnMatch)
     .filter(Boolean)
+    .filter((match) => match.date === dateValue)
     .sort((a, b) => `${a.date} ${a.displayTime}`.localeCompare(`${b.date} ${b.displayTime}`));
 }
 
 async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
+  const selectedDate = matchDateInput.value;
+  if (!selectedDate) {
+    matchInput.innerHTML = '<option value="">請先選擇賽事日期</option>';
+    availableMatches = [];
+    updateMatchMode();
+    return;
+  }
   refreshMatchesBtn.disabled = true;
   refreshMatchesBtn.textContent = "更新中...";
 
   try {
-    availableMatches = await fetchWorldCupMatches();
+    availableMatches = await fetchWorldCupMatches(selectedDate);
     populateMatchSelect(availableMatches);
     const aligned = reconcileRecordsWithMatches(availableMatches);
     const settled = applyMatchResultsToRecords(availableMatches);
@@ -402,11 +440,11 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
     if ((aligned || settled) && saveAfterUpdate) await saveRecords();
     syncHint.textContent = aligned
       ? "已更新賽程，並自動對齊舊紀錄的場次、名稱與日期。"
-      : "已更新近 3 天賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。";
+      : `已更新 ${selectedDate} 賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
   } catch (error) {
     console.error("無法更新世界盃賽程/賽果：", error);
     matchInput.innerHTML = `
-      <option value="">賽程載入失敗</option>
+      <option value="">${escapeHtml(selectedDate)} 賽程載入失敗</option>
       <option value="__manual__">手動輸入其他賽事</option>
     `;
     updateMatchMode();
@@ -505,7 +543,7 @@ function renderMatchBreakdown(matchItems) {
           <div class="match-card-header">
             <div>
               <h3>${escapeHtml(match.label)}</h3>
-              <p>${escapeHtml(match.records[0]?.date || "日期未填")} · ${match.count} 筆 · ${match.memberCount} 人 · ${formatCurrency(match.amount)} · 平均賠率 ${match.averageOdds.toFixed(2)}</p>
+              <p>${escapeHtml(match.records[0]?.matchDate || "比賽日期未填")} · ${match.count} 筆 · ${match.memberCount} 人 · ${formatCurrency(match.amount)} · 平均賠率 ${match.averageOdds.toFixed(2)}</p>
             </div>
           </div>
           <div class="match-score-chart">
@@ -536,7 +574,7 @@ function renderVisualStats(items) {
     (item) => normalizeMatchKey(item.match)
   )
     .map((entry) => ({ ...entry, label: entry.records[0]?.match || "未填寫" }))
-    .sort((a, b) => String(b.records[0]?.date).localeCompare(String(a.records[0]?.date)) || b.count - a.count);
+    .sort((a, b) => String(b.records[0]?.matchDate).localeCompare(String(a.records[0]?.matchDate)) || b.count - a.count);
   renderMatchBreakdown(byMatch);
 }
 
@@ -629,7 +667,7 @@ function renderMemberFinanceList(target, items) {
 
 function renderStatsPanels(items) {
   const byMember = getMemberFinanceStats(items).sort((a, b) => b.netAmount - a.netAmount || b.totalAmount - a.totalAmount);
-  const byDate = groupStats(items, "date").sort((a, b) => b.label.localeCompare(a.label));
+  const byDate = groupStats(items, "createdDate").sort((a, b) => b.label.localeCompare(a.label));
   renderMemberFinanceList(memberStats, byMember);
   renderStatList(dateStats, byDate);
 }
@@ -637,12 +675,12 @@ function renderStatsPanels(items) {
 function populateAnalysisFilters() {
   const currentDate = analysisDateFilter.value;
   const currentMatch = analysisMatchFilter.value;
-  const dates = Array.from(new Set(records.map((item) => item.date).filter(Boolean))).sort().reverse();
+  const dates = Array.from(new Set(records.map((item) => item.matchDate).filter(Boolean))).sort().reverse();
   const matches = Array.from(
     new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries()
   ).sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
 
-  analysisDateFilter.innerHTML = '<option value="all">所有日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
+  analysisDateFilter.innerHTML = '<option value="all">所有比賽日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
   analysisMatchFilter.innerHTML = '<option value="all">所有場次</option>' + matches.map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
   analysisDateFilter.value = dates.includes(currentDate) ? currentDate : "all";
   analysisMatchFilter.value = matches.some(([key]) => key === currentMatch) ? currentMatch : "all";
@@ -650,9 +688,20 @@ function populateAnalysisFilters() {
 
 function getAnalysisRecords() {
   return records.filter((item) =>
-    (analysisDateFilter.value === "all" || item.date === analysisDateFilter.value) &&
+    (analysisDateFilter.value === "all" || item.matchDate === analysisDateFilter.value) &&
     (analysisMatchFilter.value === "all" || normalizeMatchKey(item.match) === analysisMatchFilter.value)
   );
+}
+
+function populateStatsDateFilter() {
+  const currentValue = statsDateFilter.value;
+  const dates = Array.from(new Set(records.map((item) => item.createdDate).filter(Boolean))).sort().reverse();
+  statsDateFilter.innerHTML = '<option value="all">所有填表日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
+  statsDateFilter.value = dates.includes(currentValue) ? currentValue : "all";
+}
+
+function getStatsRecords() {
+  return records.filter((item) => statsDateFilter.value === "all" || item.createdDate === statsDateFilter.value);
 }
 
 function renderFilteredSummary(items) {
@@ -680,12 +729,12 @@ function renderRecords() {
         (resultValue === "all" || item.result === resultValue)
       );
     })
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    .sort((a, b) => String(b.createdAt || b.createdDate).localeCompare(String(a.createdAt || a.createdDate)));
 
   recordsToggleSummary.textContent = `展開紀錄（${filtered.length} 筆）`;
 
   if (!filtered.length) {
-    recordsBody.innerHTML = '<tr><td colspan="8" class="empty">找不到符合條件的紀錄</td></tr>';
+    recordsBody.innerHTML = '<tr><td colspan="9" class="empty">找不到符合條件的紀錄</td></tr>';
     return;
   }
 
@@ -694,13 +743,14 @@ function renderRecords() {
       (item) => `
         <tr>
           <td>${escapeHtml(item.member)}</td>
-          <td>${escapeHtml(item.date)}</td>
+          <td>${escapeHtml(item.createdDate || "—")}</td>
+          <td>${escapeHtml(item.matchDate || "—")}</td>
           <td>${escapeHtml(item.match)}</td>
           <td>${formatCurrency(item.amount)}</td>
           <td>${Number(item.odds || 0).toFixed(2)}</td>
           <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
           <td>${escapeHtml(item.note || "—")}</td>
-          <td><button class="delete-button" data-id="${escapeHtml(item.id)}" type="button">刪除</button></td>
+          <td>${isCurrentUserAdmin() ? `<button class="delete-button" data-id="${escapeHtml(item.id)}" type="button">刪除</button>` : ""}</td>
         </tr>
       `
     )
@@ -720,10 +770,12 @@ function render() {
   renderSummary();
   populateMemberFilter();
   populateAnalysisFilters();
+  populateStatsDateFilter();
   const analysisRecords = getAnalysisRecords();
+  const statsRecords = getStatsRecords();
   renderVisualStats(analysisRecords);
-  renderStatsPanels(analysisRecords);
-  renderFilteredSummary(analysisRecords);
+  renderStatsPanels(statsRecords);
+  renderFilteredSummary(statsRecords);
   renderRecords();
 }
 
@@ -758,11 +810,12 @@ function startFirestoreSync() {
         const cloudRecords = snapshot.data()?.records;
         if (Array.isArray(cloudRecords)) {
           records = cloudRecords;
+          const migrated = migrateLegacyRecordDates();
           const aligned = reconcileRecordsWithMatches(availableMatches);
           const settled = applyMatchResultsToRecords(availableMatches);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
-          if (aligned || settled) await saveRecords();
+          if (migrated || aligned || settled) await saveRecords();
         }
       },
       (error) => {
@@ -782,12 +835,16 @@ form.addEventListener("submit", async (event) => {
   const isManualMatch = matchInput.value === "__manual__";
   const matchedFixture = availableMatches.find((match) => match.id === String(formData.get("matchId") || ""));
   const selectedMatch = isManualMatch ? manualMatchInput.value : matchedFixture?.label || formData.get("match");
+  const createdAt = new Date();
   const entry = {
     id: createId(),
     member: auth.currentUser.displayName || auth.currentUser.email || "Google 成員",
     memberUid: auth.currentUser.uid,
     memberEmail: auth.currentUser.email || "",
-    date: matchedFixture?.date || String(formData.get("date") || "").trim(),
+    createdAt: createdAt.toISOString(),
+    createdDate: toLocalDateValue(createdAt),
+    matchDate: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
+    date: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
     match: String(selectedMatch || "").trim(),
     matchId: matchedFixture?.id || "",
     amount: Number(formData.get("amount")),
@@ -798,8 +855,8 @@ form.addEventListener("submit", async (event) => {
     note: `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`,
   };
 
-  if (!entry.member || !entry.date || !entry.match) {
-    window.alert("請填寫成員、日期與賽事。");
+  if (!entry.member || !entry.match) {
+    window.alert("請確認登入成員與賽事。");
     return;
   }
 
@@ -807,25 +864,23 @@ form.addEventListener("submit", async (event) => {
   applyMatchResultsToRecords(availableMatches);
   render();
   await saveRecords();
+  const selectedFixtureDate = matchDateInput.value;
   form.reset();
   memberInput.value = auth.currentUser.displayName || auth.currentUser.email || "Google 成員";
-  dateInput.value = toLocalDateValue();
+  matchDateInput.value = selectedFixtureDate;
   updateMatchMode();
 });
 
 recordsBody.addEventListener("click", async (event) => {
   const button = event.target.closest(".delete-button");
   if (!button) return;
+  if (!isCurrentUserAdmin()) {
+    window.alert("只有管理員可以刪除紀錄。");
+    return;
+  }
   if (!window.confirm("確定要刪除這筆紀錄嗎？")) return;
 
   records = records.filter((item) => item.id !== button.dataset.id);
-  render();
-  await saveRecords();
-});
-
-resetDataBtn.addEventListener("click", async () => {
-  if (!window.confirm("確定要清空所有紀錄嗎？這個動作無法復原。")) return;
-  records = [];
   render();
   await saveRecords();
 });
@@ -849,12 +904,17 @@ exportBtn.addEventListener("click", () => {
   element.addEventListener("change", () => {
     const analysisRecords = getAnalysisRecords();
     renderVisualStats(analysisRecords);
-    renderStatsPanels(analysisRecords);
-    renderFilteredSummary(analysisRecords);
   });
 });
 
+statsDateFilter.addEventListener("change", () => {
+  const statsRecords = getStatsRecords();
+  renderStatsPanels(statsRecords);
+  renderFilteredSummary(statsRecords);
+});
+
 matchInput.addEventListener("change", updateMatchMode);
+matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
 manualMatchInput.addEventListener("input", updateMatchMode);
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 
@@ -887,6 +947,7 @@ logoutBtn.addEventListener("click", async () => {
 if (auth) {
   auth.onAuthStateChanged((user) => {
     updateAuthUI(user);
+    render();
     if (user) startFirestoreSync();
   });
 } else {
@@ -895,7 +956,7 @@ if (auth) {
   updateAuthUI(null);
 }
 
-document.getElementById("dateInput").value = toLocalDateValue();
+matchDateInput.value = toLocalDateValue();
 refreshWorldCupData();
 window.setInterval(() => refreshWorldCupData(), MATCH_REFRESH_INTERVAL);
 render();

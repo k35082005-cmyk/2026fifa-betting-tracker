@@ -321,6 +321,21 @@ textarea::placeholder {
   color: #999992;
 }
 
+#matchInput option.is-completed,
+#matchInput.is-completed {
+  color: var(--danger);
+}
+
+#matchInput option.is-scheduled,
+#matchInput.is-scheduled {
+  color: var(--positive);
+}
+
+#matchInput option.is-live,
+#matchInput.is-live {
+  color: #b47700;
+}
+
 .submit-button {
   width: 100%;
   margin-top: 24px;
@@ -769,8 +784,28 @@ td:last-child {
 }
 
 @media (max-width: 560px) {
+  .app-shell {
+    width: calc(100% - 16px);
+    padding-top: 12px;
+  }
+
+  .hero {
+    gap: 18px;
+    padding: 24px 0 20px;
+  }
+
   .hero-copy h1 {
-    font-size: 3.2rem;
+    font-size: clamp(2.55rem, 15vw, 3.2rem);
+  }
+
+  .hero-subtitle {
+    letter-spacing: 0.1em;
+  }
+
+  .auth-actions,
+  .toolbar > div {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .toolbar {
@@ -780,7 +815,7 @@ td:last-child {
   }
 
   .card {
-    padding: 20px 16px;
+    padding: 18px 14px;
   }
 
   .form-grid {
@@ -798,6 +833,35 @@ td:last-child {
   .analysis-filters,
   .filtered-summary {
     grid-template-columns: 1fr;
+  }
+
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .button,
+  .text-button,
+  .records-details > summary {
+    min-height: 44px;
+  }
+
+  .analysis-filters {
+    gap: 12px;
+  }
+
+  .score-fieldset {
+    padding: 12px 10px 14px;
+  }
+
+  .score-inputs {
+    gap: 8px;
+  }
+
+  .score-divider {
+    padding-bottom: 9px;
   }
 
   .filters input,
@@ -825,5 +889,39 @@ td:last-child {
 
   .pie-chart {
     width: min(190px, 72vw);
+    justify-self: center;
+  }
+
+  .table-wrap,
+  .compact-table-wrap {
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .match-card-header,
+  .section-header {
+    gap: 14px;
+  }
+
+  .legend-row {
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+  }
+
+  .legend-row strong {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 360px) {
+  .score-inputs {
+    gap: 5px;
+  }
+
+  .score-fieldset {
+    padding-inline: 8px;
+  }
+
+  .member-money-grid {
+    grid-template-columns: 1fr;
   }
 }
