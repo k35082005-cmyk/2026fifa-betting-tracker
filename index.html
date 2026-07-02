@@ -53,11 +53,11 @@
             <div class="form-grid">
               <label>
                 <span>成員</span>
-                <input id="memberInput" name="member" type="text" placeholder="例如：小明" autocomplete="name" required />
+                <input id="memberInput" name="member" type="text" placeholder="請先使用 Google 登入" readonly required />
               </label>
               <label>
-                <span>日期</span>
-                <input id="dateInput" name="date" type="date" required />
+                <span>賽事日期</span>
+                <input id="dateInput" name="date" type="date" readonly required />
               </label>
               <label class="wide-field">
                 <span>賽事 / 隊伍</span>
@@ -75,14 +75,6 @@
                 <span>賠率</span>
                 <input id="oddsInput" name="odds" type="number" min="0" step="0.01" placeholder="1.00" required />
               </label>
-              <label>
-                <span>結果</span>
-                <select id="resultInput" name="result">
-                  <option value="pending">未開獎</option>
-                  <option value="win">贏</option>
-                  <option value="loss">輸</option>
-                </select>
-              </label>
               <fieldset id="scoreFields" class="wide-field score-fieldset" disabled>
                 <legend>預測比數</legend>
                 <p id="scoreHint">請先選擇賽事，系統會帶入兩隊名稱。</p>
@@ -93,7 +85,7 @@
                 </div>
               </fieldset>
             </div>
-            <button class="button button-dark submit-button" type="submit">加入紀錄 <span aria-hidden="true">→</span></button>
+            <button class="button button-dark submit-button" type="submit" disabled title="請先使用 Google 登入">加入紀錄 <span aria-hidden="true">→</span></button>
           </form>
         </article>
 
@@ -126,8 +118,10 @@
           </div>
         </div>
 
-        <div class="table-wrap">
-          <table>
+        <details class="records-details">
+          <summary id="recordsToggleSummary">展開紀錄</summary>
+          <div class="table-wrap">
+            <table>
             <thead>
               <tr>
                 <th>成員</th>
@@ -141,14 +135,19 @@
               </tr>
             </thead>
             <tbody id="recordsBody"></tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </details>
       </section>
 
       <section class="card analysis-card">
         <div class="section-title">
           <span>04</span>
           <h2>各場預測比分分布</h2>
+        </div>
+        <div class="analysis-filters" aria-label="統計篩選">
+          <label><span>日期</span><select id="analysisDateFilter"><option value="all">所有日期</option></select></label>
+          <label><span>場次</span><select id="analysisMatchFilter"><option value="all">所有場次</option></select></label>
         </div>
         <p class="section-description">每一場賽事獨立統計，查看成員對該場比分的預測占比。</p>
         <div class="match-breakdown" id="matchBreakdown"></div>
@@ -159,6 +158,8 @@
           <span>05</span>
           <h2>分類統計</h2>
         </div>
+        <p class="section-description">沿用上方的日期與場次篩選。</p>
+        <div id="filteredSummary" class="summary-grid filtered-summary"></div>
         <div class="mini-grid">
           <div class="panel">
             <h3>依成員</h3>

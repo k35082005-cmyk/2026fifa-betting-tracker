@@ -147,6 +147,11 @@ button {
   background: #383838;
 }
 
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .button-light {
   background: transparent;
 }
@@ -366,6 +371,36 @@ textarea::placeholder {
 .records-card,
 .analysis-card {
   margin-bottom: 24px;
+}
+
+.records-details > summary {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 2px;
+  cursor: pointer;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.records-details[open] > summary {
+  margin-bottom: 10px;
+}
+
+.analysis-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 280px));
+  gap: 16px;
+  margin: -8px 0 26px;
+}
+
+.filtered-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filtered-summary .summary-item {
+  padding-right: 16px;
 }
 
 .section-header {
@@ -758,6 +793,11 @@ td:last-child {
 
   .filters {
     display: grid;
+  }
+
+  .analysis-filters,
+  .filtered-summary {
+    grid-template-columns: 1fr;
   }
 
   .filters input,

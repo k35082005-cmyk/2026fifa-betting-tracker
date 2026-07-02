@@ -26,6 +26,13 @@ const scoreFields = document.getElementById("scoreFields");
 const scoreHint = document.getElementById("scoreHint");
 const homeScoreLabel = document.getElementById("homeScoreLabel");
 const awayScoreLabel = document.getElementById("awayScoreLabel");
+const memberInput = document.getElementById("memberInput");
+const dateInput = document.getElementById("dateInput");
+const recordsToggleSummary = document.getElementById("recordsToggleSummary");
+const analysisDateFilter = document.getElementById("analysisDateFilter");
+const analysisMatchFilter = document.getElementById("analysisMatchFilter");
+const filteredSummary = document.getElementById("filteredSummary");
+const submitButton = form.querySelector('[type="submit"]');
 
 const COUNTRY_NAMES_ZH = {
   England: "英格蘭", Congo: "剛果共和國", "Congo DR": "剛果民主共和國", Belgium: "比利時",
@@ -193,12 +200,35 @@ function normalizeScore(score) {
 }
 
 function normalizeMatchKey(match) {
-  return String(match || "未填寫")
-    .normalize("NFKC")
-    .trim()
-    .toLocaleLowerCase("zh-Hant")
-    .replace(/\s*(?:vs\.?|對)\s*/gi, "::")
-    .replace(/\s+/g, " ");
+  const text = String(match || "未填寫").normalize("NFKC").replace(/[\p{Format}\u200B-\u200D\uFEFF]/gu, "").trim();
+  const teams = text.split(/\s*(?:vs\.?|對)\s*/i);
+  return teams
+    .map((team) => localizeCountryName(team.trim()))
+    .map((team) => String(team).toLocaleLowerCase("zh-Hant").replace(/[\p{Separator}\p{Punctuation}\p{Format}\p{Mark}\p{Control}]/gu, ""))
+    .join("::");
+}
+
+function reconcileRecordsWithMatches(matches) {
+  if (!matches.length) return false;
+  const byId = new Map(matches.map((match) => [match.id, match]));
+  const byKey = new Map(matches.map((match) => [normalizeMatchKey(match.label), match]));
+  let changed = false;
+
+  records = records.map((record) => {
+    const matched = byId.get(String(record.matchId || "")) || byKey.get(normalizeMatchKey(record.match));
+    if (!matched) return record;
+    if (record.matchId === matched.id && record.match === matched.label && record.date === matched.date) return record;
+    changed = true;
+    return {
+      ...record,
+      matchId: matched.id,
+      match: matched.label,
+      date: matched.date,
+      alignedAt: new Date().toISOString(),
+    };
+  });
+
+  return changed;
 }
 
 function getGroupedBetStats(items, keyGetter) {
@@ -343,6 +373,9 @@ function updateMatchMode() {
   awayScoreLabel.textContent = selectedMatch?.awayName || manualTeams[1] || "B 隊";
   scoreFields.disabled = !hasMatch;
   scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（正規時間）` : "請先選擇賽事，系統會帶入兩隊名稱。";
+  dateInput.readOnly = !isManual;
+  if (selectedMatch) dateInput.value = selectedMatch.date;
+  if (isManual && !dateInput.value) dateInput.value = toLocalDateValue();
 }
 
 async function fetchWorldCupMatches() {
@@ -363,10 +396,13 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
   try {
     availableMatches = await fetchWorldCupMatches();
     populateMatchSelect(availableMatches);
-    const changed = applyMatchResultsToRecords(availableMatches);
+    const aligned = reconcileRecordsWithMatches(availableMatches);
+    const settled = applyMatchResultsToRecords(availableMatches);
     render();
-    if (changed && saveAfterUpdate) await saveRecords();
-    syncHint.textContent = `已更新近 3 天賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
+    if ((aligned || settled) && saveAfterUpdate) await saveRecords();
+    syncHint.textContent = aligned
+      ? "已更新賽程，並自動對齊舊紀錄的場次、名稱與日期。"
+      : "已更新近 3 天賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。";
   } catch (error) {
     console.error("無法更新世界盃賽程/賽果：", error);
     matchInput.innerHTML = `
@@ -494,9 +530,9 @@ function renderMatchBreakdown(matchItems) {
     .join("");
 }
 
-function renderVisualStats() {
+function renderVisualStats(items) {
   const byMatch = getGroupedBetStats(
-    records,
+    items,
     (item) => normalizeMatchKey(item.match)
   )
     .map((entry) => ({ ...entry, label: entry.records[0]?.match || "未填寫" }))
@@ -546,14 +582,15 @@ function getMemberFinanceStats(items) {
 
   items.forEach((item) => {
     const label = item.member || "未填寫";
-    const current = grouped.get(label) || {
+    const memberKey = item.memberUid || label;
+    const current = grouped.get(memberKey) || {
       label,
       count: 0,
       records: [],
     };
     current.count += 1;
     current.records.push(item);
-    grouped.set(label, current);
+    grouped.set(memberKey, current);
   });
 
   return Array.from(grouped.values()).map((entry) => {
@@ -590,11 +627,42 @@ function renderMemberFinanceList(target, items) {
     : '<p class="empty">還沒有資料</p>';
 }
 
-function renderStatsPanels() {
-  const byMember = getMemberFinanceStats(records).sort((a, b) => b.netAmount - a.netAmount || b.totalAmount - a.totalAmount);
-  const byDate = groupStats(records, "date").sort((a, b) => b.label.localeCompare(a.label));
+function renderStatsPanels(items) {
+  const byMember = getMemberFinanceStats(items).sort((a, b) => b.netAmount - a.netAmount || b.totalAmount - a.totalAmount);
+  const byDate = groupStats(items, "date").sort((a, b) => b.label.localeCompare(a.label));
   renderMemberFinanceList(memberStats, byMember);
   renderStatList(dateStats, byDate);
+}
+
+function populateAnalysisFilters() {
+  const currentDate = analysisDateFilter.value;
+  const currentMatch = analysisMatchFilter.value;
+  const dates = Array.from(new Set(records.map((item) => item.date).filter(Boolean))).sort().reverse();
+  const matches = Array.from(
+    new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
+
+  analysisDateFilter.innerHTML = '<option value="all">所有日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
+  analysisMatchFilter.innerHTML = '<option value="all">所有場次</option>' + matches.map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
+  analysisDateFilter.value = dates.includes(currentDate) ? currentDate : "all";
+  analysisMatchFilter.value = matches.some(([key]) => key === currentMatch) ? currentMatch : "all";
+}
+
+function getAnalysisRecords() {
+  return records.filter((item) =>
+    (analysisDateFilter.value === "all" || item.date === analysisDateFilter.value) &&
+    (analysisMatchFilter.value === "all" || normalizeMatchKey(item.match) === analysisMatchFilter.value)
+  );
+}
+
+function renderFilteredSummary(items) {
+  const summary = calculateSummary(items);
+  filteredSummary.innerHTML = [
+    ["篩選筆數", summary.totalCount],
+    ["投注總額", formatCurrency(summary.totalAmount)],
+    ["未開獎", summary.pendingCount],
+    ["淨輸贏", formatCurrency(summary.netAmount)],
+  ].map(([label, value]) => `<div class="summary-item"><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
 
 function renderRecords() {
@@ -613,6 +681,8 @@ function renderRecords() {
       );
     })
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  recordsToggleSummary.textContent = `展開紀錄（${filtered.length} 筆）`;
 
   if (!filtered.length) {
     recordsBody.innerHTML = '<tr><td colspan="8" class="empty">找不到符合條件的紀錄</td></tr>';
@@ -648,9 +718,12 @@ function populateMemberFilter() {
 
 function render() {
   renderSummary();
-  renderVisualStats();
-  renderStatsPanels();
   populateMemberFilter();
+  populateAnalysisFilters();
+  const analysisRecords = getAnalysisRecords();
+  renderVisualStats(analysisRecords);
+  renderStatsPanels(analysisRecords);
+  renderFilteredSummary(analysisRecords);
   renderRecords();
 }
 
@@ -660,6 +733,9 @@ function updateAuthUI(user = auth?.currentUser) {
   authStatus.classList.toggle("is-online", isLoggedIn);
   googleLoginBtn.hidden = isLoggedIn;
   logoutBtn.hidden = !isLoggedIn;
+  memberInput.value = isLoggedIn ? user.displayName || user.email || "Google 成員" : "";
+  submitButton.disabled = !isLoggedIn;
+  submitButton.title = isLoggedIn ? "" : "請先使用 Google 登入";
   syncHint.textContent = isLoggedIn
     ? "已連接共享雲端資料；所有登入成員會看到相同紀錄。"
     : "未登入時，資料只會儲存在這台裝置。";
@@ -682,9 +758,11 @@ function startFirestoreSync() {
         const cloudRecords = snapshot.data()?.records;
         if (Array.isArray(cloudRecords)) {
           records = cloudRecords;
-          applyMatchResultsToRecords(availableMatches);
+          const aligned = reconcileRecordsWithMatches(availableMatches);
+          const settled = applyMatchResultsToRecords(availableMatches);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
+          if (aligned || settled) await saveRecords();
         }
       },
       (error) => {
@@ -696,18 +774,25 @@ function startFirestoreSync() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!auth?.currentUser) {
+    window.alert("請先使用 Google 登入後再新增紀錄。");
+    return;
+  }
   const formData = new FormData(form);
   const isManualMatch = matchInput.value === "__manual__";
-  const selectedMatch = isManualMatch ? manualMatchInput.value : formData.get("match");
+  const matchedFixture = availableMatches.find((match) => match.id === String(formData.get("matchId") || ""));
+  const selectedMatch = isManualMatch ? manualMatchInput.value : matchedFixture?.label || formData.get("match");
   const entry = {
     id: createId(),
-    member: String(formData.get("member") || "").trim(),
-    date: String(formData.get("date") || "").trim(),
+    member: auth.currentUser.displayName || auth.currentUser.email || "Google 成員",
+    memberUid: auth.currentUser.uid,
+    memberEmail: auth.currentUser.email || "",
+    date: matchedFixture?.date || String(formData.get("date") || "").trim(),
     match: String(selectedMatch || "").trim(),
-    matchId: isManualMatch ? "" : String(formData.get("matchId") || "").trim(),
+    matchId: matchedFixture?.id || "",
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
-    result: String(formData.get("result") || "pending"),
+    result: "pending",
     predictedHome: Number(formData.get("homeScore")),
     predictedAway: Number(formData.get("awayScore")),
     note: `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`,
@@ -723,7 +808,8 @@ form.addEventListener("submit", async (event) => {
   render();
   await saveRecords();
   form.reset();
-  document.getElementById("dateInput").value = toLocalDateValue();
+  memberInput.value = auth.currentUser.displayName || auth.currentUser.email || "Google 成員";
+  dateInput.value = toLocalDateValue();
   updateMatchMode();
 });
 
@@ -757,6 +843,15 @@ exportBtn.addEventListener("click", () => {
 [searchInput, filterMember, filterResult].forEach((element) => {
   element.addEventListener("input", renderRecords);
   element.addEventListener("change", renderRecords);
+});
+
+[analysisDateFilter, analysisMatchFilter].forEach((element) => {
+  element.addEventListener("change", () => {
+    const analysisRecords = getAnalysisRecords();
+    renderVisualStats(analysisRecords);
+    renderStatsPanels(analysisRecords);
+    renderFilteredSummary(analysisRecords);
+  });
 });
 
 matchInput.addEventListener("change", updateMatchMode);
