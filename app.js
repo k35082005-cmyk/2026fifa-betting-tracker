@@ -16,7 +16,6 @@ const googleLoginBtn = document.getElementById("googleLoginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const matchInput = document.getElementById("matchInput");
 const matchIdInput = document.getElementById("matchIdInput");
-const manualMatchInput = document.getElementById("manualMatchInput");
 const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
 const matchBreakdown = document.getElementById("matchBreakdown");
@@ -523,7 +522,6 @@ function populateMatchSelect(matches) {
   matchInput.innerHTML = `
     <option value="">選擇 ${escapeHtml(matchDateInput.value)} 賽事</option>
     ${options}
-    <option value="__manual__">手動輸入其他賽事</option>
   `;
 
   matchInput.value = matches.some((match) => match.label === currentValue) ? currentValue : "";
@@ -532,19 +530,15 @@ function populateMatchSelect(matches) {
 
 function updateMatchMode() {
   const selectedOption = matchInput.selectedOptions?.[0];
-  const isManual = matchInput.value === "__manual__";
-  manualMatchInput.hidden = !isManual;
-  manualMatchInput.required = isManual;
-  matchIdInput.value = isManual ? "" : selectedOption?.dataset.id || "";
+  matchIdInput.value = selectedOption?.dataset.id || "";
   const selectedMatch = availableMatches.find((match) => match.id === matchIdInput.value);
   matchInput.classList.remove("is-completed", "is-live", "is-scheduled");
   if (selectedMatch) {
     matchInput.classList.add(selectedMatch.completed ? "is-completed" : selectedMatch.statusState === "in" ? "is-live" : "is-scheduled");
   }
-  const hasMatch = isManual ? Boolean(manualMatchInput.value.trim()) : Boolean(selectedMatch);
-  const manualTeams = manualMatchInput.value.split(/\s+vs\s+/i).map((name) => name.trim());
-  homeScoreLabel.textContent = selectedMatch?.homeName || manualTeams[0] || "A 隊";
-  awayScoreLabel.textContent = selectedMatch?.awayName || manualTeams[1] || "B 隊";
+  const hasMatch = Boolean(selectedMatch);
+  homeScoreLabel.textContent = selectedMatch?.homeName || "A 隊";
+  awayScoreLabel.textContent = selectedMatch?.awayName || "B 隊";
   scoreFields.disabled = !hasMatch;
   scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（正規時間）` : "請先選擇賽事，系統會帶入兩隊名稱。";
 }
@@ -603,12 +597,9 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
       : `已更新 ${selectedDate} 賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
   } catch (error) {
     console.error("無法更新世界盃賽程/賽果：", error);
-    matchInput.innerHTML = `
-      <option value="">${escapeHtml(selectedDate)} 賽程載入失敗</option>
-      <option value="__manual__">手動輸入其他賽事</option>
-    `;
+    matchInput.innerHTML = `<option value="">${escapeHtml(selectedDate)} 賽程載入失敗，請稍後重試</option>`;
     updateMatchMode();
-    syncHint.textContent = `賽程/賽果更新失敗，可先手動輸入：${error.message}`;
+    syncHint.textContent = `賽程/賽果更新失敗，請稍後重試：${error.message}`;
   } finally {
     refreshMatchesBtn.disabled = false;
     refreshMatchesBtn.textContent = "更新賽程/賽果";
@@ -1220,9 +1211,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   const formData = new FormData(form);
-  const isManualMatch = matchInput.value === "__manual__";
   const matchedFixture = availableMatches.find((match) => match.id === String(formData.get("matchId") || ""));
-  const selectedMatch = isManualMatch ? manualMatchInput.value : matchedFixture?.label || formData.get("match");
+  if (!matchedFixture) {
+    window.alert("請從賽程清單選擇有效場次；若清單尚未載入，請先更新賽程。");
+    return;
+  }
   const createdAt = new Date();
   const entry = {
     id: createId(),
@@ -1233,8 +1226,8 @@ form.addEventListener("submit", async (event) => {
     createdDate: toLocalDateValue(createdAt),
     matchDate: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
     date: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
-    match: String(selectedMatch || "").trim(),
-    matchId: matchedFixture?.id || "",
+    match: matchedFixture.label,
+    matchId: matchedFixture.id,
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
     result: "pending",
@@ -1423,7 +1416,6 @@ document.addEventListener("click", (event) => {
 
 matchInput.addEventListener("change", updateMatchMode);
 matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
-manualMatchInput.addEventListener("input", updateMatchMode);
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 
 googleLoginBtn.addEventListener("click", async () => {
