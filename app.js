@@ -2,6 +2,12 @@ const STORAGE_KEY = "fifa-bet-tracker-v1";
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
 const ADMIN_UID = "qnPcedb81rXsq5o6BjMS4FiqycZ2";
+const MEMBER_NAMES_BY_UID = Object.freeze({
+  qnPcedb81rXsq5o6BjMS4FiqycZ2: "Wei",
+  tvjU2F7IkDVZ1Hhov5IlYCYC2ky2: "Vicky",
+  a2Nte74OdZVWsJXNc3CFxsYvgII2: "Hou",
+  RjLkSRBvwUQtdLrQsL24wVmpxI32: "Sam",
+});
 
 const form = document.getElementById("betForm");
 const authStatus = document.getElementById("authStatus");
@@ -35,6 +41,13 @@ const statsMatchFilter = document.getElementById("statsMatchFilter");
 const statsMemberFilter = document.getElementById("statsMemberFilter");
 const statsRangeLabel = document.getElementById("statsRangeLabel");
 const filteredSummary = document.getElementById("filteredSummary");
+const settlementStartInput = document.getElementById("settlementStartInput");
+const settlementEndInput = document.getElementById("settlementEndInput");
+const settlementRangeHint = document.getElementById("settlementRangeHint");
+const settlementPreview = document.getElementById("settlementPreview");
+const settlementMemberStats = document.getElementById("settlementMemberStats");
+const settlementHistory = document.getElementById("settlementHistory");
+const createSettlementBtn = document.getElementById("createSettlementBtn");
 const submitButton = form.querySelector('[type="submit"]');
 const menuToggle = document.getElementById("menuToggle");
 const currentPageLabel = document.getElementById("currentPageLabel");
@@ -57,8 +70,11 @@ let availableMatches = [];
 let auth = null;
 let firestore = null;
 let stopFirestoreSync = null;
+let stopSettlementsSync = null;
+let settlements = [];
 let statsDateInitialized = false;
 let latestUpcomingStatsDate = "";
+let settlementRangeInitialized = false;
 
 const LEGACY_CREATED_DATE = "2026-07-02";
 const LEGACY_FIXTURES = [
@@ -164,6 +180,14 @@ function getEspnRangeForLocalDate(dateValue) {
   return `${toEspnDateValue(previous)}-${toEspnDateValue(selected)}`;
 }
 
+function getMemberDisplayName(user) {
+  if (!user) return "";
+  return MEMBER_NAMES_BY_UID[user.uid]
+    || user.displayName
+    || user.email
+    || "Google 成員";
+}
+
 async function deleteRecord(recordId) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   if (!auth?.currentUser || !firestore) return;
@@ -212,6 +236,51 @@ function getSettlementStats(items) {
 function getNetAmount(items) {
   const stats = getSettlementStats(items);
   return roundMoney(stats.payout - stats.settledAmount);
+}
+
+function getRecordCreatedDate(item) {
+  if (item.createdDate) return item.createdDate;
+  if (item.createdAt) return toLocalDateValue(new Date(item.createdAt));
+  return "";
+}
+
+function getSettlementCandidates(startDate, endDate) {
+  return records.filter((item) => {
+    const createdDate = getRecordCreatedDate(item);
+    return !item.settlementId
+      && (item.result === "win" || item.result === "loss")
+      && createdDate
+      && createdDate >= startDate
+      && createdDate <= endDate;
+  });
+}
+
+function getMemberSettlementSummary(items) {
+  return getMemberFinanceStats(items).map((entry) => ({
+    memberUid: entry.records[0]?.memberUid || "",
+    memberEmail: entry.records[0]?.memberEmail || "",
+    member: entry.label,
+    count: entry.count,
+    stake: entry.settledAmount,
+    payout: entry.payout,
+    netAmount: entry.netAmount,
+  }));
+}
+
+function getSettlementTotals(items) {
+  const settlement = getSettlementStats(items);
+  const members = getMemberSettlementSummary(items);
+  const externalMembers = members.filter((member) => member.memberUid !== ADMIN_UID);
+  const payable = roundMoney(externalMembers.reduce((sum, member) => sum + Math.max(member.netAmount, 0), 0));
+  const receivable = roundMoney(externalMembers.reduce((sum, member) => sum + Math.max(-member.netAmount, 0), 0));
+  return {
+    stake: settlement.settledAmount,
+    payout: settlement.payout,
+    accountNetAmount: roundMoney(settlement.payout - settlement.settledAmount),
+    payable,
+    receivable,
+    netAmount: roundMoney(payable - receivable),
+  };
 }
 
 function getMoneyToneClass(amount) {
@@ -674,7 +743,7 @@ function renderSummary() {
     { label: "下注總額", value: formatCurrency(summary.totalAmount) },
     { label: "目前淨輸贏", value: formatCurrency(summary.netAmount), tone: getMoneyToneClass(summary.netAmount) },
     { label: "未開獎", value: summary.pendingCount },
-    { label: "已結算", value: summary.completedCount },
+    { label: "已開獎", value: summary.completedCount },
   ];
 
   summaryStats.innerHTML = items
@@ -708,7 +777,7 @@ function getMemberFinanceStats(items) {
   const grouped = new Map();
 
   items.forEach((item) => {
-    const label = item.member || "未填寫";
+    const label = MEMBER_NAMES_BY_UID[item.memberUid] || item.member || "未填寫";
     const memberKey = item.memberUid || label;
     const current = grouped.get(memberKey) || {
       label,
@@ -742,7 +811,7 @@ function renderMemberFinanceList(target, items) {
                 <span>${entry.count} 筆 · 總投注 ${formatCurrency(entry.totalAmount)}</span>
               </div>
               <div class="member-money-grid">
-                <span>已結算 <strong>${formatCurrency(entry.settledAmount)}</strong></span>
+                <span>已開獎本金 <strong>${formatCurrency(entry.settledAmount)}</strong></span>
                 <span>未開獎 <strong>${formatCurrency(entry.pendingAmount)}</strong></span>
                 <span>派彩 <strong>${formatCurrency(entry.payout)}</strong></span>
                 <span>淨輸贏 <strong class="${getMoneyToneClass(entry.netAmount)}">${formatCurrency(entry.netAmount)}</strong></span>
@@ -795,7 +864,7 @@ function renderOverallMemberList(items) {
 
 function renderOverallStats() {
   const currentUid = auth?.currentUser?.uid;
-  const currentName = auth?.currentUser?.displayName || auth?.currentUser?.email;
+  const currentName = getMemberDisplayName(auth?.currentUser);
   const byMember = getMemberFinanceStats(records).sort((a, b) => {
     const aIsCurrent = a.label === currentName || a.records.some((record) => record.memberUid === currentUid);
     const bIsCurrent = b.label === currentName || b.records.some((record) => record.memberUid === currentUid);
@@ -865,11 +934,141 @@ function renderFilteredSummary(items) {
   filteredSummary.innerHTML = [
     ["紀錄筆數", items.length, ""],
     ["投注總額", formatCurrency(settlement.totalAmount), ""],
-    ["已結算", formatCurrency(settlement.settledAmount), ""],
+    ["已開獎本金", formatCurrency(settlement.settledAmount), ""],
     ["未開獎", formatCurrency(settlement.pendingAmount), ""],
     ["派彩", formatCurrency(settlement.payout), ""],
     ["淨輸贏", formatCurrency(netAmount), getMoneyToneClass(netAmount)],
   ].map(([label, value, tone]) => `<div class="summary-item"><span>${label}</span><strong class="${tone}">${value}</strong></div>`).join("");
+}
+
+function initializeSettlementRange() {
+  if (settlementRangeInitialized) return;
+  const dates = records
+    .filter((item) => !item.settlementId && (item.result === "win" || item.result === "loss"))
+    .map(getRecordCreatedDate)
+    .filter(Boolean)
+    .sort();
+  settlementStartInput.value = dates[0] || toLocalDateValue();
+  settlementEndInput.value = dates.at(-1) || toLocalDateValue();
+  settlementRangeInitialized = true;
+}
+
+function renderSettlementMembers(target, members) {
+  target.innerHTML = members.length
+    ? members
+        .sort((a, b) => b.netAmount - a.netAmount || a.member.localeCompare(b.member, "zh-Hant"))
+        .map((member) => {
+          const isSelf = member.memberUid === ADMIN_UID;
+          const action = isSelf
+            ? `本人結果 ${formatCurrency(member.netAmount)}（不收付）`
+            : member.netAmount > 0
+              ? `你要付 ${formatCurrency(member.netAmount)}`
+              : member.netAmount < 0
+                ? `你要收 ${formatCurrency(Math.abs(member.netAmount))}`
+                : "不用收付";
+          return `
+            <div class="member-money-row">
+              <div class="member-money-main">
+                <strong>${escapeHtml(member.member)}</strong>
+                <span>${member.count} 筆 · 本金 ${formatCurrency(member.stake)}</span>
+              </div>
+              <div class="settlement-member-result">
+                <span>返還 ${formatCurrency(member.payout)}</span>
+                <strong class="${getMoneyToneClass(member.netAmount)}">${action}</strong>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : '<p class="empty">這個日期區間沒有可結算的單據</p>';
+}
+
+function formatSettlementDateTime(value) {
+  const date = value?.toDate ? value.toDate() : value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime())
+    ? new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeStyle: "short" }).format(date)
+    : "同步中";
+}
+
+function renderSettlementHistory() {
+  settlementHistory.innerHTML = settlements.length
+    ? settlements
+        .slice()
+        .sort((a, b) => {
+          const aTime = a.settledAt?.toMillis?.() || new Date(a.settledAt || 0).getTime();
+          const bTime = b.settledAt?.toMillis?.() || new Date(b.settledAt || 0).getTime();
+          return bTime - aTime;
+        })
+        .map((settlement) => {
+          const totals = settlement.totals || {};
+          const memberRows = (settlement.members || [])
+            .map((member) => {
+              const isSelf = member.memberUid === ADMIN_UID;
+              const action = isSelf
+                ? `本人 ${formatCurrency(member.netAmount)}`
+                : member.netAmount > 0
+                  ? `付 ${formatCurrency(member.netAmount)}`
+                  : member.netAmount < 0
+                    ? `收 ${formatCurrency(Math.abs(member.netAmount))}`
+                    : "不用收付";
+              return `<div><span>${escapeHtml(member.member)}</span><strong class="${getMoneyToneClass(member.netAmount)}">${action}</strong></div>`;
+            })
+            .join("");
+          return `
+            <article class="settlement-node">
+              <div class="settlement-node-header">
+                <div>
+                  <span class="settlement-node-label">結算區間</span>
+                  <h3>${escapeHtml(settlement.periodStart)} ～ ${escapeHtml(settlement.periodEnd)}</h3>
+                </div>
+                <p>${formatSettlementDateTime(settlement.settledAt)} · ${Number(settlement.recordCount || 0)} 筆</p>
+              </div>
+              <div class="settlement-node-totals">
+                <span>本金 <strong>${formatCurrency(totals.stake)}</strong></span>
+                <span>應付 <strong class="is-positive">${formatCurrency(totals.payable)}</strong></span>
+                <span>應收 <strong class="is-negative">${formatCurrency(totals.receivable)}</strong></span>
+                <span>對外淨額 <strong class="${getMoneyToneClass(totals.netAmount)}">${formatCurrency(totals.netAmount)}</strong></span>
+              </div>
+              <div class="settlement-node-members">${memberRows}</div>
+            </article>
+          `;
+        })
+        .join("")
+    : '<p class="empty">尚未建立結算節點</p>';
+}
+
+function renderSettlementPage() {
+  initializeSettlementRange();
+  const startDate = settlementStartInput.value;
+  const endDate = settlementEndInput.value;
+  const validRange = Boolean(startDate && endDate && startDate <= endDate);
+  const candidates = validRange ? getSettlementCandidates(startDate, endDate) : [];
+  const members = getMemberSettlementSummary(candidates);
+  const totals = getSettlementTotals(candidates);
+  const pendingCount = validRange
+    ? records.filter((item) => {
+        const createdDate = getRecordCreatedDate(item);
+        return !item.settlementId && item.result === "pending" && createdDate >= startDate && createdDate <= endDate;
+      }).length
+    : 0;
+
+  settlementRangeHint.textContent = validRange
+    ? `依填表日期選取；${pendingCount} 筆未開獎單不會納入本次結算。`
+    : "結束日期不可早於起始日期。";
+  settlementPreview.innerHTML = [
+    ["可結算單據", `${candidates.length} 筆`, ""],
+    ["已開獎本金", formatCurrency(totals.stake), ""],
+    ["你要付成員", formatCurrency(totals.payable), totals.payable ? "is-positive" : ""],
+    ["你要收成員", formatCurrency(totals.receivable), totals.receivable ? "is-negative" : ""],
+    ["對外淨收付", formatCurrency(totals.netAmount), getMoneyToneClass(totals.netAmount)],
+  ].map(([label, value, tone]) => `<div class="summary-item"><span>${label}</span><strong class="${tone}">${value}</strong></div>`).join("");
+  renderSettlementMembers(settlementMemberStats, members);
+  renderSettlementHistory();
+
+  const isAdmin = isCurrentUserAdmin();
+  createSettlementBtn.hidden = !isAdmin;
+  createSettlementBtn.disabled = !validRange || !candidates.length;
+  createSettlementBtn.title = isAdmin ? "" : "只有管理員可以建立結算節點";
 }
 
 function renderRecords() {
@@ -935,17 +1134,19 @@ function render() {
   renderVisualStats(analysisRecords);
   renderStatsPanels(statsRecords);
   renderFilteredSummary(statsRecords);
+  renderSettlementPage();
   renderRecords();
 }
 
 function setActivePage(pageName, { updateHash = true } = {}) {
-  const validPage = ["entry", "records", "overview", "analysis", "stats"].includes(pageName) ? pageName : "entry";
+  const validPage = ["entry", "records", "overview", "analysis", "stats", "settlements"].includes(pageName) ? pageName : "entry";
   const pageLabels = {
     entry: "01　新增紀錄",
     records: "02　紀錄明細",
     overview: "03　總覽",
     analysis: "04　比分分析",
-    stats: "05　結算總表",
+    stats: "05　分類統計",
+    settlements: "06　款項結算",
   };
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
@@ -963,11 +1164,11 @@ function setActivePage(pageName, { updateHash = true } = {}) {
 
 function updateAuthUI(user = auth?.currentUser) {
   const isLoggedIn = Boolean(user);
-  authStatus.textContent = isLoggedIn ? user.displayName || user.email || "已登入" : "未登入";
+  authStatus.textContent = isLoggedIn ? getMemberDisplayName(user) : "未登入";
   authStatus.classList.toggle("is-online", isLoggedIn);
   googleLoginBtn.hidden = isLoggedIn;
   logoutBtn.hidden = !isLoggedIn;
-  memberInput.value = isLoggedIn ? user.displayName || user.email || "Google 成員" : "";
+  memberInput.value = isLoggedIn ? getMemberDisplayName(user) : "";
   submitButton.disabled = !isLoggedIn;
   submitButton.title = isLoggedIn ? "" : "請先使用 Google 登入";
   syncHint.textContent = isLoggedIn
@@ -978,6 +1179,19 @@ function updateAuthUI(user = auth?.currentUser) {
 function startFirestoreSync() {
   if (!auth?.currentUser || !firestore) return;
   stopFirestoreSync?.();
+  stopSettlementsSync?.();
+
+  stopSettlementsSync = firestore
+    .collection("settlements")
+    .onSnapshot(
+      (snapshot) => {
+        settlements = snapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
+        renderSettlementPage();
+      },
+      (error) => {
+        console.error("無法讀取結算節點：", error);
+      }
+    );
 
   stopFirestoreSync = firestore
     .collection("bets")
@@ -1022,7 +1236,7 @@ form.addEventListener("submit", async (event) => {
   const createdAt = new Date();
   const entry = {
     id: createId(),
-    member: auth.currentUser.displayName || auth.currentUser.email || "Google 成員",
+    member: getMemberDisplayName(auth.currentUser),
     memberUid: auth.currentUser.uid,
     memberEmail: auth.currentUser.email || "",
     createdAt: createdAt.toISOString(),
@@ -1102,6 +1316,103 @@ exportBtn.addEventListener("click", () => {
   });
 });
 
+[settlementStartInput, settlementEndInput].forEach((element) => {
+  element.addEventListener("change", renderSettlementPage);
+});
+
+createSettlementBtn.addEventListener("click", async () => {
+  if (!isCurrentUserAdmin() || !firestore || !auth?.currentUser) {
+    window.alert("只有管理員可以建立結算節點。");
+    return;
+  }
+
+  const periodStart = settlementStartInput.value;
+  const periodEnd = settlementEndInput.value;
+  const candidates = getSettlementCandidates(periodStart, periodEnd);
+  if (!periodStart || !periodEnd || periodStart > periodEnd || !candidates.length) {
+    window.alert("這個日期區間沒有可結算的已開獎單據。");
+    return;
+  }
+  if (candidates.length > 450) {
+    window.alert("單次結算最多 450 筆，請縮小日期區間。");
+    return;
+  }
+
+  const previewTotals = getSettlementTotals(candidates);
+  const confirmation = [
+    `結算 ${periodStart} ～ ${periodEnd}`,
+    `共 ${candidates.length} 筆`,
+    `你要付 ${formatCurrency(previewTotals.payable)}`,
+    `你要收 ${formatCurrency(previewTotals.receivable)}`,
+    "",
+    "建立後這批單據會從待結算區移除，確定繼續？",
+  ].join("\n");
+  if (!window.confirm(confirmation)) return;
+
+  createSettlementBtn.disabled = true;
+  createSettlementBtn.textContent = "結算中...";
+  try {
+    const settlementRef = firestore.collection("settlements").doc();
+    await firestore.runTransaction(async (transaction) => {
+      const betRefs = candidates.map((item) => firestore.collection("bets").doc(item.id));
+      const snapshots = await Promise.all(betRefs.map((ref) => transaction.get(ref)));
+      const freshRecords = snapshots.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id }));
+      const stillValid = freshRecords.every((item) => {
+        const createdDate = getRecordCreatedDate(item);
+        return !item.settlementId
+          && (item.result === "win" || item.result === "loss")
+          && createdDate >= periodStart
+          && createdDate <= periodEnd;
+      });
+      if (!stillValid || freshRecords.length !== candidates.length) {
+        throw new Error("資料已被更新，請重新確認結算內容。");
+      }
+
+      const members = getMemberSettlementSummary(freshRecords);
+      const totals = getSettlementTotals(freshRecords);
+      const serverTimestamp = firebase.firestore.FieldValue.serverTimestamp();
+      transaction.set(settlementRef, {
+        id: settlementRef.id,
+        periodStart,
+        periodEnd,
+        settledAt: serverTimestamp,
+        settledByUid: auth.currentUser.uid,
+        settledByName: getMemberDisplayName(auth.currentUser),
+        recordIds: freshRecords.map((item) => item.id),
+        recordCount: freshRecords.length,
+        totals,
+        members,
+      });
+      betRefs.forEach((ref) => {
+        transaction.update(ref, {
+          settlementId: settlementRef.id,
+          settlementPeriodStart: periodStart,
+          settlementPeriodEnd: periodEnd,
+          settlementAt: serverTimestamp,
+        });
+      });
+    });
+    const settledIds = new Set(candidates.map((item) => item.id));
+    records = records.map((item) => settledIds.has(item.id)
+      ? {
+          ...item,
+          settlementId: settlementRef.id,
+          settlementPeriodStart: periodStart,
+          settlementPeriodEnd: periodEnd,
+          settlementAt: new Date().toISOString(),
+        }
+      : item);
+    settlementRangeInitialized = false;
+    window.alert("結算節點已建立，待結算金額已重新歸零。");
+  } catch (error) {
+    console.error("建立結算節點失敗：", error);
+    window.alert(`建立結算節點失敗：${error.message}`);
+  } finally {
+    createSettlementBtn.textContent = "建立結算節點";
+    renderSettlementPage();
+  }
+});
+
 menuToggle.addEventListener("click", () => {
   const willOpen = pageMenu.hidden;
   pageMenu.hidden = !willOpen;
@@ -1144,6 +1455,9 @@ logoutBtn.addEventListener("click", async () => {
   try {
     stopFirestoreSync?.();
     stopFirestoreSync = null;
+    stopSettlementsSync?.();
+    stopSettlementsSync = null;
+    settlements = [];
     await auth?.signOut();
   } catch (error) {
     window.alert(`登出失敗：${error.message}`);

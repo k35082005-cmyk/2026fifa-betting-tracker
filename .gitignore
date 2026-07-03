@@ -10,6 +10,7 @@ Thumbs.db
 *.log
 .vercel
 .firebase/
+.firebase-backups/
 firebase-debug.log*
 
 # Local Firebase administration

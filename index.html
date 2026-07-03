@@ -43,7 +43,8 @@
               <button type="button" data-page-target="records">02　紀錄明細</button>
               <button type="button" data-page-target="overview">03　總覽</button>
               <button type="button" data-page-target="analysis">04　比分分析</button>
-              <button type="button" data-page-target="stats">05　結算總表</button>
+              <button type="button" data-page-target="stats">05　分類統計</button>
+              <button type="button" data-page-target="settlements">06　款項結算</button>
             </nav>
           </div>
         </div>
@@ -193,9 +194,44 @@
         <p id="statsRangeLabel" class="section-description">所有資料</p>
         <div id="filteredSummary" class="summary-grid filtered-summary"></div>
         <div class="panel member-dashboard-panel">
-          <h3>成員結算總表</h3>
+          <h3>成員歷史總表</h3>
           <div id="memberStats"></div>
         </div>
+      </section>
+
+      <section class="card analysis-card" data-page="settlements" hidden>
+        <div class="section-title">
+          <span>06</span>
+          <h2>款項結算</h2>
+        </div>
+        <p class="section-description">
+          依填表日期自由選擇結算區間；只納入已開獎且尚未結算的單據。完成後此頁待結算金額會歸零，05 的歷史統計不受影響。
+        </p>
+
+        <div class="settlement-controls">
+          <label>
+            <span>起始日期</span>
+            <input id="settlementStartInput" type="date" />
+          </label>
+          <label>
+            <span>結束日期</span>
+            <input id="settlementEndInput" type="date" />
+          </label>
+          <button id="createSettlementBtn" class="button button-dark" type="button">建立結算節點</button>
+        </div>
+        <p id="settlementRangeHint" class="section-description"></p>
+        <div id="settlementPreview" class="summary-grid settlement-summary"></div>
+
+        <div class="panel member-dashboard-panel settlement-member-panel">
+          <h3>本次成員應收／應付</h3>
+          <div id="settlementMemberStats"></div>
+        </div>
+
+        <div class="dashboard-subheading settlement-history-heading">
+          <h3>歷次結算節點</h3>
+          <span>每次結算都會保留當時的金額快照</span>
+        </div>
+        <div id="settlementHistory" class="settlement-history"></div>
       </section>
     </main>
 
