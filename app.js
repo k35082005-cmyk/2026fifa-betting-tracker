@@ -162,6 +162,11 @@ function formatCurrency(amount) {
   }).format(Number(amount) || 0);
 }
 
+function formatSignedCurrency(amount) {
+  const value = Number(amount) || 0;
+  return `${value > 0 ? "+" : ""}${formatCurrency(value)}`;
+}
+
 function toLocalDateValue(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -970,10 +975,10 @@ function renderSettlementMembers(target, members) {
             <div class="member-money-row">
               <div class="member-money-main">
                 <strong>${escapeHtml(member.member)}</strong>
-                <span>${member.count} 筆 · 本金 ${formatCurrency(member.stake)}</span>
+                <span>${member.count} 筆</span>
               </div>
               <div class="settlement-member-result">
-                <span>返還 ${formatCurrency(member.payout)}</span>
+                <span>淨輸贏 ${formatSignedCurrency(member.netAmount)}</span>
                 <strong class="${getMoneyToneClass(member.netAmount)}">${action}</strong>
               </div>
             </div>
@@ -1024,10 +1029,9 @@ function renderSettlementHistory() {
                 <p>${formatSettlementDateTime(settlement.settledAt)} · ${Number(settlement.recordCount || 0)} 筆</p>
               </div>
               <div class="settlement-node-totals">
-                <span>本金 <strong>${formatCurrency(totals.stake)}</strong></span>
-                <span>應付 <strong class="is-positive">${formatCurrency(totals.payable)}</strong></span>
-                <span>應收 <strong class="is-negative">${formatCurrency(totals.receivable)}</strong></span>
-                <span>對外淨額 <strong class="${getMoneyToneClass(totals.netAmount)}">${formatCurrency(totals.netAmount)}</strong></span>
+                <span>付給成員 <strong class="is-positive">${formatCurrency(totals.payable)}</strong></span>
+                <span>向成員收 <strong class="is-negative">${formatCurrency(totals.receivable)}</strong></span>
+                <span>對外淨收付 <strong class="${getMoneyToneClass(totals.netAmount)}">${formatCurrency(totals.netAmount)}</strong></span>
               </div>
               <div class="settlement-node-members">${memberRows}</div>
             </article>
@@ -1057,7 +1061,6 @@ function renderSettlementPage() {
     : "結束日期不可早於起始日期。";
   settlementPreview.innerHTML = [
     ["可結算單據", `${candidates.length} 筆`, ""],
-    ["已開獎本金", formatCurrency(totals.stake), ""],
     ["你要付成員", formatCurrency(totals.payable), totals.payable ? "is-positive" : ""],
     ["你要收成員", formatCurrency(totals.receivable), totals.receivable ? "is-negative" : ""],
     ["對外淨收付", formatCurrency(totals.netAmount), getMoneyToneClass(totals.netAmount)],
