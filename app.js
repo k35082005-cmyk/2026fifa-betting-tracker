@@ -964,13 +964,6 @@ function renderSettlementMembers(target, members) {
         .sort((a, b) => b.netAmount - a.netAmount || a.member.localeCompare(b.member, "zh-Hant"))
         .map((member) => {
           const isSelf = member.memberUid === ADMIN_UID;
-          const action = isSelf
-            ? `本人結果 ${formatCurrency(member.netAmount)}（不收付）`
-            : member.netAmount > 0
-              ? `你要付 ${formatCurrency(member.netAmount)}`
-              : member.netAmount < 0
-                ? `你要收 ${formatCurrency(Math.abs(member.netAmount))}`
-                : "不用收付";
           return `
             <div class="member-money-row">
               <div class="member-money-main">
@@ -978,8 +971,8 @@ function renderSettlementMembers(target, members) {
                 <span>${member.count} 筆</span>
               </div>
               <div class="settlement-member-result">
-                <span>淨輸贏 ${formatSignedCurrency(member.netAmount)}</span>
-                <strong class="${getMoneyToneClass(member.netAmount)}">${action}</strong>
+                <span>${isSelf ? "帳戶持有人 · 不列入成員合計" : "淨輸贏"}</span>
+                <strong class="${getMoneyToneClass(member.netAmount)}">${formatSignedCurrency(member.netAmount)}</strong>
               </div>
             </div>
           `;
@@ -1009,14 +1002,8 @@ function renderSettlementHistory() {
           const memberRows = (settlement.members || [])
             .map((member) => {
               const isSelf = member.memberUid === ADMIN_UID;
-              const action = isSelf
-                ? `本人 ${formatCurrency(member.netAmount)}`
-                : member.netAmount > 0
-                  ? `付 ${formatCurrency(member.netAmount)}`
-                  : member.netAmount < 0
-                    ? `收 ${formatCurrency(Math.abs(member.netAmount))}`
-                    : "不用收付";
-              return `<div><span>${escapeHtml(member.member)}</span><strong class="${getMoneyToneClass(member.netAmount)}">${action}</strong></div>`;
+              const label = `${member.member}${isSelf ? " · 帳戶持有人" : ""}`;
+              return `<div><span>${escapeHtml(label)}</span><strong class="${getMoneyToneClass(member.netAmount)}">${formatSignedCurrency(member.netAmount)}</strong></div>`;
             })
             .join("");
           return `
@@ -1029,9 +1016,9 @@ function renderSettlementHistory() {
                 <p>${formatSettlementDateTime(settlement.settledAt)} · ${Number(settlement.recordCount || 0)} 筆</p>
               </div>
               <div class="settlement-node-totals">
-                <span>付給成員 <strong class="is-positive">${formatCurrency(totals.payable)}</strong></span>
-                <span>向成員收 <strong class="is-negative">${formatCurrency(totals.receivable)}</strong></span>
-                <span>對外淨收付 <strong class="${getMoneyToneClass(totals.netAmount)}">${formatCurrency(totals.netAmount)}</strong></span>
+                <span>正數合計 <strong class="is-positive">${formatSignedCurrency(totals.payable)}</strong></span>
+                <span>負數合計 <strong class="is-negative">${formatSignedCurrency(-totals.receivable)}</strong></span>
+                <span>結算淨額 <strong class="${getMoneyToneClass(totals.netAmount)}">${formatSignedCurrency(totals.netAmount)}</strong></span>
               </div>
               <div class="settlement-node-members">${memberRows}</div>
             </article>
@@ -1061,9 +1048,9 @@ function renderSettlementPage() {
     : "結束日期不可早於起始日期。";
   settlementPreview.innerHTML = [
     ["可結算單據", `${candidates.length} 筆`, ""],
-    ["你要付成員", formatCurrency(totals.payable), totals.payable ? "is-positive" : ""],
-    ["你要收成員", formatCurrency(totals.receivable), totals.receivable ? "is-negative" : ""],
-    ["對外淨收付", formatCurrency(totals.netAmount), getMoneyToneClass(totals.netAmount)],
+    ["正數合計", formatSignedCurrency(totals.payable), totals.payable ? "is-positive" : ""],
+    ["負數合計", formatSignedCurrency(-totals.receivable), totals.receivable ? "is-negative" : ""],
+    ["結算淨額", formatSignedCurrency(totals.netAmount), getMoneyToneClass(totals.netAmount)],
   ].map(([label, value, tone]) => `<div class="summary-item"><span>${label}</span><strong class="${tone}">${value}</strong></div>`).join("");
   renderSettlementMembers(settlementMemberStats, members);
   renderSettlementHistory();
@@ -1345,8 +1332,9 @@ createSettlementBtn.addEventListener("click", async () => {
   const confirmation = [
     `結算 ${periodStart} ～ ${periodEnd}`,
     `共 ${candidates.length} 筆`,
-    `你要付 ${formatCurrency(previewTotals.payable)}`,
-    `你要收 ${formatCurrency(previewTotals.receivable)}`,
+    `正數合計 ${formatSignedCurrency(previewTotals.payable)}`,
+    `負數合計 ${formatSignedCurrency(-previewTotals.receivable)}`,
+    `結算淨額 ${formatSignedCurrency(previewTotals.netAmount)}`,
     "",
     "建立後這批單據會從待結算區移除，確定繼續？",
   ].join("\n");
