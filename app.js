@@ -344,6 +344,28 @@ function normalizeMatchKey(match) {
     .join("::");
 }
 
+function getRecordMatchKey(record) {
+  const matchId = String(record?.matchId || "").trim();
+  if (matchId) return `id:${matchId}`;
+
+  const normalizedName = normalizeMatchKey(record?.match);
+  const matchDate = String(record?.matchDate || record?.date || "").trim();
+  const matchingRecordWithId = records.find((item) =>
+    item.matchId &&
+    normalizeMatchKey(item.match) === normalizedName &&
+    (!matchDate || String(item.matchDate || item.date || "").trim() === matchDate)
+  );
+  return matchingRecordWithId
+    ? `id:${String(matchingRecordWithId.matchId).trim()}`
+    : `name:${normalizedName}:date:${matchDate || "unknown"}`;
+}
+
+function getMatchFilterOptions() {
+  return Array.from(
+    new Map(records.filter((item) => item.match).map((item) => [getRecordMatchKey(item), item.match])).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
+}
+
 function isCurrentUserAdmin() {
   return auth?.currentUser?.uid === ADMIN_UID;
 }
@@ -725,7 +747,7 @@ function renderMatchBreakdown(matchItems) {
 function renderVisualStats(items) {
   const byMatch = getGroupedBetStats(
     items,
-    (item) => normalizeMatchKey(item.match)
+    (item) => getRecordMatchKey(item)
   )
     .map((entry) => ({ ...entry, label: entry.records[0]?.match || "未填寫" }))
     .sort((a, b) => String(b.records[0]?.matchDate).localeCompare(String(a.records[0]?.matchDate)) || b.count - a.count);
@@ -873,9 +895,7 @@ function populateAnalysisFilters() {
   const currentDate = analysisDateFilter.value;
   const currentMatch = analysisMatchFilter.value;
   const dates = Array.from(new Set(records.map((item) => item.matchDate).filter(Boolean))).sort().reverse();
-  const matches = Array.from(
-    new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries()
-  ).sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
+  const matches = getMatchFilterOptions();
 
   analysisDateFilter.innerHTML = '<option value="all">所有比賽日期</option>' + dates.map((date) => `<option value="${escapeHtml(date)}">${escapeHtml(date)}</option>`).join("");
   analysisMatchFilter.innerHTML = '<option value="all">所有場次</option>' + matches.map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
@@ -886,7 +906,7 @@ function populateAnalysisFilters() {
 function getAnalysisRecords() {
   return records.filter((item) =>
     (analysisDateFilter.value === "all" || item.matchDate === analysisDateFilter.value) &&
-    (analysisMatchFilter.value === "all" || normalizeMatchKey(item.match) === analysisMatchFilter.value)
+    (analysisMatchFilter.value === "all" || getRecordMatchKey(item) === analysisMatchFilter.value)
   );
 }
 
@@ -895,8 +915,7 @@ function populateStatsFilters() {
   const currentMatch = statsMatchFilter.value;
   const currentMember = statsMemberFilter.value;
   const dates = Array.from(new Set(records.map((item) => item.matchDate).filter(Boolean))).sort().reverse();
-  const matches = Array.from(new Map(records.filter((item) => item.match).map((item) => [normalizeMatchKey(item.match), item.match])).entries())
-    .sort((a, b) => a[1].localeCompare(b[1], "zh-Hant"));
+  const matches = getMatchFilterOptions();
   const members = Array.from(new Set(records.map((item) => item.member).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-Hant"));
 
   const today = toLocalDateValue();
@@ -916,7 +935,7 @@ function populateStatsFilters() {
 function getStatsRecords() {
   return records.filter((item) =>
     (statsDateFilter.value === "all" || item.matchDate === statsDateFilter.value) &&
-    (statsMatchFilter.value === "all" || normalizeMatchKey(item.match) === statsMatchFilter.value) &&
+    (statsMatchFilter.value === "all" || getRecordMatchKey(item) === statsMatchFilter.value) &&
     (statsMemberFilter.value === "all" || item.member === statsMemberFilter.value)
   );
 }
