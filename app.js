@@ -1,5 +1,6 @@
 const STORAGE_KEY = "fifa-bet-tracker-v1";
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const OPENLIGADB_URL = "https://api.openligadb.de/getmatchdata/wm26/2026";
 const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
 const ADMIN_UID = "qnPcedb81rXsq5o6BjMS4FiqycZ2";
 const MEMBER_NAMES_BY_UID = Object.freeze({
@@ -7,6 +8,9 @@ const MEMBER_NAMES_BY_UID = Object.freeze({
   tvjU2F7IkDVZ1Hhov5IlYCYC2ky2: "Vicky",
   a2Nte74OdZVWsJXNc3CFxsYvgII2: "Hou",
   RjLkSRBvwUQtdLrQsL24wVmpxI32: "Sam",
+});
+const TEAM_CODE_ALIASES = Object.freeze({
+  ALG: "DZA", CRO: "HRV", DRC: "COD", KSA: "SAU", NED: "NLD", POR: "PRT", SUI: "CHE", URU: "URY",
 });
 
 const form = document.getElementById("betForm");
@@ -47,6 +51,18 @@ const settlementPreview = document.getElementById("settlementPreview");
 const settlementMemberStats = document.getElementById("settlementMemberStats");
 const settlementHistory = document.getElementById("settlementHistory");
 const createSettlementBtn = document.getElementById("createSettlementBtn");
+const adminMenuButton = document.getElementById("adminMenuButton");
+const adminSystemSummary = document.getElementById("adminSystemSummary");
+const adminRefreshBtn = document.getElementById("adminRefreshBtn");
+const adminMaintenanceStatus = document.getElementById("adminMaintenanceStatus");
+const adminCorrectionForm = document.getElementById("adminCorrectionForm");
+const adminRecordSelect = document.getElementById("adminRecordSelect");
+const adminHomeScoreInput = document.getElementById("adminHomeScoreInput");
+const adminAwayScoreInput = document.getElementById("adminAwayScoreInput");
+const adminOddsInput = document.getElementById("adminOddsInput");
+const adminAmountInput = document.getElementById("adminAmountInput");
+const adminCorrectionBtn = document.getElementById("adminCorrectionBtn");
+const adminAuditLogs = document.getElementById("adminAuditLogs");
 const submitButton = form.querySelector('[type="submit"]');
 const menuToggle = document.getElementById("menuToggle");
 const currentPageLabel = document.getElementById("currentPageLabel");
@@ -70,10 +86,15 @@ let auth = null;
 let firestore = null;
 let stopFirestoreSync = null;
 let stopSettlementsSync = null;
+let stopAuditSync = null;
+let stopMaintenanceSync = null;
 let settlements = [];
+let auditLogs = [];
+let maintenanceRuns = [];
 let statsDateInitialized = false;
 let latestUpcomingStatsDate = "";
 let settlementRangeInitialized = false;
+let activeSubmissionId = createId();
 
 const LEGACY_CREATED_DATE = "2026-07-02";
 const LEGACY_FIXTURES = [
@@ -122,10 +143,10 @@ function loadRecords() {
   }
 }
 
-async function saveRecords(changedRecords = records, auditAction = "update") {
+async function saveRecords(changedRecords = records, auditAction = "update", auditDetails = null) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 
-  if (!auth?.currentUser || !firestore || !changedRecords.length) return;
+  if (!auth?.currentUser || !firestore || !changedRecords.length) return false;
 
   try {
     const uniqueRecords = Array.from(new Map(changedRecords.map((record) => [record.id, record])).values());
@@ -141,18 +162,31 @@ async function saveRecords(changedRecords = records, auditAction = "update") {
           actorName: getMemberDisplayName(auth.currentUser),
           recordId: record.id,
           occurredAt: firebase.firestore.FieldValue.serverTimestamp(),
+          ...(auditDetails ? { details: auditDetails } : {}),
         });
       });
       await batch.commit();
     }
+    return true;
   } catch (error) {
     console.error("雲端同步失敗：", error);
     window.alert(`資料已保存在本機，但雲端同步失敗：${error.message}`);
+    return false;
   }
 }
 
 function createId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function isLikelyDuplicateBet(candidate, existing) {
+  return existing.id !== candidate.id
+    && existing.memberUid === candidate.memberUid
+    && String(existing.matchId || "") === String(candidate.matchId || "")
+    && Number(existing.predictedHome) === Number(candidate.predictedHome)
+    && Number(existing.predictedAway) === Number(candidate.predictedAway)
+    && roundMoney(existing.amount) === roundMoney(candidate.amount)
+    && Number(existing.odds) === Number(candidate.odds);
 }
 
 function escapeHtml(value) {
@@ -420,13 +454,21 @@ function reconcileRecordsWithMatches(matches) {
   records = records.map((record) => {
     const matched = byId.get(String(record.matchId || "")) || byKey.get(normalizeMatchKey(record.match));
     if (!matched) return record;
-    if (record.matchId === matched.id && record.match === matched.label && record.matchDate === matched.date) return record;
+    if (
+      record.matchId === matched.id
+      && record.match === matched.label
+      && record.matchDate === matched.date
+      && (!matched.homeCode || record.homeCode === matched.homeCode)
+      && (!matched.awayCode || record.awayCode === matched.awayCode)
+    ) return record;
     const alignedRecord = {
       ...record,
       matchId: matched.id,
       match: matched.label,
       matchDate: matched.date,
       date: matched.date,
+      homeCode: matched.homeCode || record.homeCode || "",
+      awayCode: matched.awayCode || record.awayCode || "",
       alignedAt: new Date().toISOString(),
     };
     changedRecords.push(alignedRecord);
@@ -470,6 +512,11 @@ function getCompetitor(competition, homeAway) {
 
 function localizeCountryName(name) {
   return COUNTRY_NAMES_ZH[String(name || "").trim()] || name;
+}
+
+function normalizeTeamCode(code) {
+  const normalized = String(code || "").trim().toUpperCase();
+  return TEAM_CODE_ALIASES[normalized] || normalized;
 }
 
 function parseScore(score) {
@@ -531,6 +578,8 @@ function normalizeEspnMatch(event) {
     label,
     homeName,
     awayName,
+    homeCode: String(home.team?.abbreviation || home.team?.shortDisplayName || "").toUpperCase(),
+    awayCode: String(away.team?.abbreviation || away.team?.shortDisplayName || "").toUpperCase(),
     date: toLocalDateValue(kickoff),
     displayTime: kickoff.toLocaleString("zh-TW", {
       month: "2-digit",
@@ -599,8 +648,44 @@ async function fetchWorldCupMatches(dateValue) {
 async function fetchMatchesForDates(dateValues) {
   const uniqueDates = Array.from(new Set(dateValues.filter(Boolean)));
   if (!uniqueDates.length) return [];
-  const groups = await Promise.all(uniqueDates.map((date) => fetchWorldCupMatches(date)));
-  return Array.from(new Map(groups.flat().map((match) => [match.id, match])).values());
+  const groups = await Promise.allSettled(uniqueDates.map((date) => fetchWorldCupMatches(date)));
+  const matches = groups.filter((group) => group.status === "fulfilled").flatMap((group) => group.value);
+  const failedDates = uniqueDates.filter((date, index) => groups[index].status === "rejected");
+  if (failedDates.length) {
+    try {
+      matches.push(...await fetchOpenLigaFallbackMatches(failedDates));
+    } catch (error) {
+      console.error("OpenLigaDB 備援也無法取得：", error);
+    }
+  }
+  return Array.from(new Map(matches.map((match) => [match.id, match])).values());
+}
+
+async function fetchOpenLigaFallbackMatches(dateValues) {
+  const response = await fetch(OPENLIGADB_URL);
+  if (!response.ok) throw new Error(`OpenLigaDB 回應 ${response.status}`);
+  const data = await response.json();
+  const wantedDates = new Set(dateValues);
+  const resultByFixture = new Map();
+  (data || []).filter((match) => match.matchIsFinished && match.matchDateTimeUTC).forEach((match) => {
+    const regularTime = (match.matchResults || []).find((result) => Number(result.resultTypeID) === 2);
+    const date = toLocalDateValue(new Date(match.matchDateTimeUTC));
+    if (!regularTime || !wantedDates.has(date)) return;
+    resultByFixture.set([
+      date,
+      normalizeTeamCode(match.team1?.shortName),
+      normalizeTeamCode(match.team2?.shortName),
+    ].join("|"), `${Number(regularTime.pointsTeam1)}-${Number(regularTime.pointsTeam2)}`);
+  });
+
+  return records.flatMap((record) => {
+    const date = record.matchDate || record.date;
+    const key = [date, normalizeTeamCode(record.homeCode), normalizeTeamCode(record.awayCode)].join("|");
+    const regulationScore = resultByFixture.get(key);
+    return record.result === "pending" && record.matchId && regulationScore
+      ? [{ id: String(record.matchId), label: record.match, date, completed: true, regulationScore, provider: "OpenLigaDB" }]
+      : [];
+  });
 }
 
 function getPendingRecordDates() {
@@ -660,7 +745,13 @@ function applyMatchResultsToRecords(matches) {
     if (!match || !predictedScore || record.result !== "pending") return record;
 
     const result = predictedScore === match.regulationScore ? "win" : "loss";
-    const settledRecord = { ...record, result, settledScore: match.regulationScore, settledAt: new Date().toISOString() };
+    const settledRecord = {
+      ...record,
+      result,
+      settledScore: match.regulationScore,
+      resultProvider: match.provider || "ESPN",
+      settledAt: new Date().toISOString(),
+    };
     changedRecords.push(settledRecord);
     return settledRecord;
   });
@@ -1091,6 +1182,64 @@ function renderSettlementPage() {
   createSettlementBtn.title = isAdmin ? "" : "只有管理員可以建立結算節點";
 }
 
+function getAuditActionLabel(action) {
+  return {
+    create: "新增投注",
+    delete: "刪除投注",
+    schedule_sync: "場次對齊",
+    foreground_settle: "前端自動判定",
+    background_settle: "背景自動判定",
+    legacy_migration: "舊資料遷移",
+    create_settlement: "建立款項結算",
+    admin_correction: "管理員修正",
+  }[action] || action || "未知操作";
+}
+
+function populateAdminRecordSelect() {
+  const currentValue = adminRecordSelect.value;
+  const editableRecords = records.filter((record) => !record.settlementId);
+  const options = editableRecords
+    .slice()
+    .sort((a, b) => String(b.createdAt || b.createdDate).localeCompare(String(a.createdAt || a.createdDate)))
+    .map((record) => `<option value="${escapeHtml(record.id)}">${escapeHtml(
+      `${record.createdDate || "日期未填"} · ${record.member} · ${record.match} · ${record.note}`
+    )}</option>`)
+    .join("");
+  adminRecordSelect.innerHTML = '<option value="">選擇要修正的投注</option>' + options;
+  adminRecordSelect.value = editableRecords.some((record) => record.id === currentValue) ? currentValue : "";
+}
+
+function renderAdminPage() {
+  if (!isCurrentUserAdmin()) return;
+  const pendingCount = records.filter((record) => record.result === "pending").length;
+  const latestBackground = auditLogs.find((log) => log.action === "background_settle");
+  adminSystemSummary.innerHTML = [
+    ["投注文件", `${records.length} 筆`],
+    ["待判定", `${pendingCount} 筆`],
+    ["已載入異動", `${auditLogs.length} 筆`],
+    ["最近背景判定", latestBackground ? formatSettlementDateTime(latestBackground.occurredAt) : "尚無異動"],
+  ].map(([label, value]) => `<div class="summary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+
+  adminMaintenanceStatus.innerHTML = maintenanceRuns.length
+    ? maintenanceRuns.map((run) => `
+        <div class="admin-status-row">
+          <div><strong>${escapeHtml(run.label || run.type || run.id)}</strong><span>${formatSettlementDateTime(run.completedAt)}</span></div>
+          <span>${escapeHtml(run.summary || "執行完成")}</span>
+        </div>
+      `).join("")
+    : '<p class="empty">排程狀態會在下一次背景工作完成後顯示</p>';
+
+  adminAuditLogs.innerHTML = auditLogs.length
+    ? auditLogs.map((log) => `
+        <div class="admin-audit-row">
+          <div><strong>${escapeHtml(getAuditActionLabel(log.action))}</strong><span>${escapeHtml(log.actorName || log.actorUid || "系統")}</span></div>
+          <div><span>${escapeHtml(log.recordId || log.settlementId || "—")}</span><time>${formatSettlementDateTime(log.occurredAt)}</time></div>
+        </div>
+      `).join("")
+    : '<p class="empty">尚無異動紀錄</p>';
+  populateAdminRecordSelect();
+}
+
 function renderRecords() {
   const searchText = searchInput.value.trim().toLowerCase();
   const memberValue = filterMember.value;
@@ -1156,10 +1305,13 @@ function render() {
   renderFilteredSummary(statsRecords);
   renderSettlementPage();
   renderRecords();
+  renderAdminPage();
 }
 
 function setActivePage(pageName, { updateHash = true } = {}) {
-  const validPage = ["entry", "records", "overview", "analysis", "stats", "settlements"].includes(pageName) ? pageName : "entry";
+  const allowedPages = ["entry", "records", "overview", "analysis", "stats", "settlements"];
+  if (isCurrentUserAdmin()) allowedPages.push("admin");
+  const validPage = allowedPages.includes(pageName) ? pageName : "entry";
   const pageLabels = {
     entry: "01　新增紀錄",
     records: "02　紀錄明細",
@@ -1167,6 +1319,7 @@ function setActivePage(pageName, { updateHash = true } = {}) {
     analysis: "04　比分分析",
     stats: "05　分類統計",
     settlements: "06　款項結算",
+    admin: "07　管理員中心",
   };
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
@@ -1189,17 +1342,45 @@ function updateAuthUI(user = auth?.currentUser) {
   googleLoginBtn.hidden = isLoggedIn;
   logoutBtn.hidden = !isLoggedIn;
   memberInput.value = isLoggedIn ? getMemberDisplayName(user) : "";
+  adminMenuButton.hidden = user?.uid !== ADMIN_UID;
   submitButton.disabled = !isLoggedIn;
   submitButton.title = isLoggedIn ? "" : "請先使用 Google 登入";
   syncHint.textContent = isLoggedIn
     ? "已連接共享雲端資料；所有登入成員會看到相同紀錄。"
     : "未登入時，資料只會儲存在這台裝置。";
+  if (user?.uid !== ADMIN_UID && location.hash === "#admin") setActivePage("entry");
+}
+
+function startAdminSync() {
+  stopAuditSync?.();
+  stopMaintenanceSync?.();
+  stopAuditSync = null;
+  stopMaintenanceSync = null;
+  auditLogs = [];
+  maintenanceRuns = [];
+  if (!isCurrentUserAdmin() || !firestore) return;
+
+  stopAuditSync = firestore.collection("auditLogs").orderBy("occurredAt", "desc").limit(100).onSnapshot(
+    (snapshot) => {
+      auditLogs = snapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
+      renderAdminPage();
+    },
+    (error) => console.error("無法讀取異動紀錄：", error)
+  );
+  stopMaintenanceSync = firestore.collection("maintenanceRuns").onSnapshot(
+    (snapshot) => {
+      maintenanceRuns = snapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
+      renderAdminPage();
+    },
+    (error) => console.error("無法讀取排程狀態：", error)
+  );
 }
 
 function startFirestoreSync() {
   if (!auth?.currentUser || !firestore) return;
   stopFirestoreSync?.();
   stopSettlementsSync?.();
+  startAdminSync();
 
   stopSettlementsSync = firestore
     .collection("settlements")
@@ -1258,7 +1439,8 @@ form.addEventListener("submit", async (event) => {
   }
   const createdAt = new Date();
   const entry = {
-    id: createId(),
+    id: activeSubmissionId,
+    idempotencyKey: activeSubmissionId,
     member: getMemberDisplayName(auth.currentUser),
     memberUid: auth.currentUser.uid,
     memberEmail: auth.currentUser.email || "",
@@ -1268,6 +1450,8 @@ form.addEventListener("submit", async (event) => {
     date: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
     match: matchedFixture.label,
     matchId: matchedFixture.id,
+    homeCode: matchedFixture.homeCode,
+    awayCode: matchedFixture.awayCode,
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
     result: "pending",
@@ -1280,15 +1464,20 @@ form.addEventListener("submit", async (event) => {
     window.alert("請確認登入成員與賽事。");
     return;
   }
+  const duplicate = records.find((record) => isLikelyDuplicateBet(entry, record));
+  if (duplicate && !window.confirm(
+    `這筆投注與既有紀錄完全相同：\n${duplicate.member} · ${duplicate.match} · ${duplicate.note} · 賠率 ${Number(duplicate.odds).toFixed(2)} · ${formatCurrency(duplicate.amount)}\n\n仍要新增嗎？`
+  )) return;
 
   submitButton.disabled = true;
   submitButton.textContent = "儲存中...";
   try {
-    records.unshift(entry);
+    records = [entry, ...records.filter((record) => record.id !== entry.id)];
     const settled = applyMatchResultsToRecords(availableMatches);
     render();
     const savedEntry = records.find((record) => record.id === entry.id) || entry;
-    await saveRecords([savedEntry], "create");
+    const saved = await saveRecords([savedEntry], "create");
+    if (saved) activeSubmissionId = createId();
     if (settled.length) await saveRecords(settled, "foreground_settle");
   } finally {
     submitButton.disabled = false;
@@ -1469,6 +1658,79 @@ matchInput.addEventListener("change", updateMatchMode);
 matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 
+adminRecordSelect.addEventListener("change", () => {
+  const record = records.find((item) => item.id === adminRecordSelect.value);
+  adminHomeScoreInput.value = record?.predictedHome ?? "";
+  adminAwayScoreInput.value = record?.predictedAway ?? "";
+  adminOddsInput.value = record?.odds ?? "";
+  adminAmountInput.value = record?.amount ?? "";
+});
+
+adminRefreshBtn.addEventListener("click", async () => {
+  if (!isCurrentUserAdmin()) return;
+  adminRefreshBtn.disabled = true;
+  adminRefreshBtn.textContent = "同步中...";
+  try {
+    await refreshWorldCupData();
+    window.alert("賽程與待判定投注已重新同步。");
+  } finally {
+    adminRefreshBtn.disabled = false;
+    adminRefreshBtn.textContent = "立即同步賽程／賽果";
+  }
+});
+
+adminCorrectionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!isCurrentUserAdmin()) return;
+  const original = records.find((record) => record.id === adminRecordSelect.value);
+  if (!original) return;
+  if (original.settlementId) {
+    window.alert("這筆紀錄已完成款項結算，不可直接修改。");
+    return;
+  }
+
+  const nextValues = {
+    predictedHome: Number(adminHomeScoreInput.value),
+    predictedAway: Number(adminAwayScoreInput.value),
+    odds: Number(adminOddsInput.value),
+    amount: Number(adminAmountInput.value),
+  };
+  if (!Object.values(nextValues).every(Number.isFinite)) {
+    window.alert("請確認比分、賠率與金額格式。");
+    return;
+  }
+  if (!window.confirm(`確定修正 ${original.member} 的「${original.match} ${original.note}」嗎？`)) return;
+
+  const baseRecord = { ...original };
+  delete baseRecord.settledScore;
+  delete baseRecord.settledAt;
+  delete baseRecord.resultProvider;
+  const corrected = {
+    ...baseRecord,
+    ...nextValues,
+    note: `${nextValues.predictedHome}-${nextValues.predictedAway}`,
+    result: "pending",
+    correctedAt: new Date().toISOString(),
+    correctedByUid: auth.currentUser.uid,
+  };
+  records = records.map((record) => record.id === corrected.id ? corrected : record);
+  adminCorrectionBtn.disabled = true;
+  try {
+    const saved = await saveRecords([corrected], "admin_correction", {
+      before: `${original.note}|${original.odds}|${original.amount}`,
+      after: `${corrected.note}|${corrected.odds}|${corrected.amount}`,
+    });
+    if (!saved) return;
+    const matches = await fetchMatchesForDates([corrected.matchDate || corrected.date]);
+    const settled = applyMatchResultsToRecords(matches);
+    if (settled.length) await saveRecords(settled, "foreground_settle");
+    render();
+    window.alert("資料已修正並重新檢查賽果。");
+  } finally {
+    adminCorrectionBtn.disabled = false;
+  }
+});
+
 googleLoginBtn.addEventListener("click", async () => {
   if (!auth) {
     window.alert("Firebase 尚未正確初始化，請檢查 firebase-config.js。");
@@ -1491,7 +1753,13 @@ logoutBtn.addEventListener("click", async () => {
     stopFirestoreSync = null;
     stopSettlementsSync?.();
     stopSettlementsSync = null;
+    stopAuditSync?.();
+    stopAuditSync = null;
+    stopMaintenanceSync?.();
+    stopMaintenanceSync = null;
     settlements = [];
+    auditLogs = [];
+    maintenanceRuns = [];
     await auth?.signOut();
   } catch (error) {
     window.alert(`登出失敗：${error.message}`);
@@ -1502,7 +1770,10 @@ if (auth) {
   auth.onAuthStateChanged((user) => {
     updateAuthUI(user);
     render();
-    if (user) startFirestoreSync();
+    if (user) {
+      startFirestoreSync();
+      setActivePage(location.hash.replace("#", ""), { updateHash: false });
+    }
   });
 } else {
   googleLoginBtn.disabled = true;

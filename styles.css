@@ -1099,6 +1099,29 @@ td:last-child {
   text-align: right;
 }
 
+.score-detail-group .compact-table {
+  width: 100%;
+  min-width: 100%;
+  table-layout: fixed;
+}
+
+.score-detail-group .compact-table th:nth-child(1),
+.score-detail-group .compact-table td:nth-child(1) {
+  width: 36%;
+}
+
+.score-detail-group .compact-table th:nth-child(2),
+.score-detail-group .compact-table td:nth-child(2) {
+  width: 32%;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-detail-group .compact-table th:nth-child(3),
+.score-detail-group .compact-table td:nth-child(3) {
+  width: 32%;
+  font-variant-numeric: tabular-nums;
+}
+
 .score-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1144,6 +1167,60 @@ td:last-child {
 .compact-table th:last-child,
 .compact-table td:last-child {
   padding-right: 0;
+  text-align: right;
+}
+
+.admin-panel {
+  margin-top: 20px;
+}
+
+.admin-correction-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(4, minmax(100px, 0.7fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-correction-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-correction-form label > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.admin-status-list,
+.admin-audit-list {
+  display: grid;
+}
+
+.admin-status-row,
+.admin-audit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-status-row > div,
+.admin-audit-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-status-row span,
+.admin-audit-row span,
+.admin-audit-row time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-audit-row > div:last-child {
+  justify-items: end;
   text-align: right;
 }
 
@@ -1203,6 +1280,15 @@ td:last-child {
   .filtered-summary,
   .settlement-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-correction-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-record-field,
+  .admin-correction-form .button {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1264,6 +1350,31 @@ td:last-child {
 
   .settlement-controls .button {
     width: 100%;
+  }
+
+  .admin-correction-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-record-field,
+  .admin-correction-form .button {
+    grid-column: 1 / -1;
+  }
+
+  .admin-correction-form .button {
+    width: 100%;
+  }
+
+  .admin-status-row,
+  .admin-audit-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .admin-audit-row > div:last-child {
+    justify-items: start;
+    text-align: left;
   }
 
   .dashboard-subheading {
