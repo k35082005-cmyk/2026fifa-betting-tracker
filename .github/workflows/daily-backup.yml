@@ -1,0 +1,30 @@
+name: Daily Firestore backup
+
+on:
+  schedule:
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node scripts/maintenance.js backup
+        env:
+          FIREBASE_SERVICE_ACCOUNT_BASE64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: firestore-backup-${{ github.run_id }}
+          path: .maintenance-output/*.json.gz
+          if-no-files-found: error
+          retention-days: 90

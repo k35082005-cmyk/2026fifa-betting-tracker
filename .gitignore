@@ -8,6 +8,10 @@ Thumbs.db
 
 # Local runtime
 *.log
+node_modules/
+.env*
+!.env.example
+.maintenance-output/
 .vercel
 .firebase/
 .firebase-backups/
@@ -21,6 +25,4 @@ storage.rules
 FIREBASE_SETUP.md
 
 # Local project notes
-README.md
-FUTURE_IMPROVEMENTS.md
 AGENTS.md

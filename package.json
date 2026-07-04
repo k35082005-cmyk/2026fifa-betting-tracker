@@ -1,0 +1,11 @@
+{
+  "name": "2026fifa-betting-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.1.0"
+  }
+}

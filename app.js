@@ -122,18 +122,29 @@ function loadRecords() {
   }
 }
 
-async function saveRecords(changedRecords = records) {
+async function saveRecords(changedRecords = records, auditAction = "update") {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 
   if (!auth?.currentUser || !firestore || !changedRecords.length) return;
 
   try {
     const uniqueRecords = Array.from(new Map(changedRecords.map((record) => [record.id, record])).values());
-    const batch = firestore.batch();
-    uniqueRecords.forEach((record) => {
-      batch.set(firestore.collection("bets").doc(record.id), record);
-    });
-    await batch.commit();
+    for (let offset = 0; offset < uniqueRecords.length; offset += 200) {
+      const batch = firestore.batch();
+      uniqueRecords.slice(offset, offset + 200).forEach((record) => {
+        const auditRef = firestore.collection("auditLogs").doc();
+        batch.set(firestore.collection("bets").doc(record.id), record);
+        batch.set(auditRef, {
+          id: auditRef.id,
+          action: auditAction,
+          actorUid: auth.currentUser.uid,
+          actorName: getMemberDisplayName(auth.currentUser),
+          recordId: record.id,
+          occurredAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      await batch.commit();
+    }
   } catch (error) {
     console.error("雲端同步失敗：", error);
     window.alert(`資料已保存在本機，但雲端同步失敗：${error.message}`);
@@ -195,11 +206,18 @@ function getMemberDisplayName(user) {
 async function deleteRecord(recordId) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   if (!auth?.currentUser || !firestore) return;
-  await firestore.collection("bets").doc(recordId).delete();
-}
-
-function mergeChangedRecords(...groups) {
-  return Array.from(new Map(groups.flat().map((record) => [record.id, record])).values());
+  const batch = firestore.batch();
+  const auditRef = firestore.collection("auditLogs").doc();
+  batch.delete(firestore.collection("bets").doc(recordId));
+  batch.set(auditRef, {
+    id: auditRef.id,
+    action: "delete",
+    actorUid: auth.currentUser.uid,
+    actorName: getMemberDisplayName(auth.currentUser),
+    recordId,
+    occurredAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
 }
 
 function getResultLabel(result) {
@@ -611,9 +629,11 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
     const settlementMatches = mergeMatches(availableMatches, pendingMatches);
     const aligned = reconcileRecordsWithMatches(settlementMatches);
     const settled = applyMatchResultsToRecords(settlementMatches);
-    const changedRecords = mergeChangedRecords(aligned, settled);
     render();
-    if (changedRecords.length && saveAfterUpdate) await saveRecords(changedRecords);
+    if (saveAfterUpdate) {
+      if (aligned.length) await saveRecords(aligned, "schedule_sync");
+      if (settled.length) await saveRecords(settled, "foreground_settle");
+    }
     syncHint.textContent = aligned.length
       ? "已更新賽程，並自動對齊舊紀錄的場次、名稱與日期。"
       : `已更新 ${selectedDate} 賽程/賽果；自動判定只採正規時間，不含延長賽與 PK。`;
@@ -1210,10 +1230,11 @@ function startFirestoreSync() {
           }
           const aligned = reconcileRecordsWithMatches(settlementMatches);
           const settled = applyMatchResultsToRecords(settlementMatches);
-          const changedRecords = mergeChangedRecords(migrated, aligned, settled);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
-          if (changedRecords.length) await saveRecords(changedRecords);
+          if (migrated.length) await saveRecords(migrated, "legacy_migration");
+          if (aligned.length) await saveRecords(aligned, "schedule_sync");
+          if (settled.length) await saveRecords(settled, "foreground_settle");
         }
       },
       (error) => {
@@ -1267,7 +1288,8 @@ form.addEventListener("submit", async (event) => {
     const settled = applyMatchResultsToRecords(availableMatches);
     render();
     const savedEntry = records.find((record) => record.id === entry.id) || entry;
-    await saveRecords(mergeChangedRecords([savedEntry], settled));
+    await saveRecords([savedEntry], "create");
+    if (settled.length) await saveRecords(settled, "foreground_settle");
   } finally {
     submitButton.disabled = false;
     submitButton.innerHTML = '加入紀錄 <span aria-hidden="true">→</span>';
@@ -1356,6 +1378,7 @@ createSettlementBtn.addEventListener("click", async () => {
   createSettlementBtn.textContent = "結算中...";
   try {
     const settlementRef = firestore.collection("settlements").doc();
+    const auditRef = firestore.collection("auditLogs").doc();
     await firestore.runTransaction(async (transaction) => {
       const betRefs = candidates.map((item) => firestore.collection("bets").doc(item.id));
       const snapshots = await Promise.all(betRefs.map((ref) => transaction.get(ref)));
@@ -1385,6 +1408,15 @@ createSettlementBtn.addEventListener("click", async () => {
         recordCount: freshRecords.length,
         totals,
         members,
+      });
+      transaction.set(auditRef, {
+        id: auditRef.id,
+        action: "create_settlement",
+        actorUid: auth.currentUser.uid,
+        actorName: getMemberDisplayName(auth.currentUser),
+        settlementId: settlementRef.id,
+        recordIds: freshRecords.map((item) => item.id),
+        occurredAt: serverTimestamp,
       });
       betRefs.forEach((ref) => {
         transaction.update(ref, {
