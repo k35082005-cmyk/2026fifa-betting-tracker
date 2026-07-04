@@ -27,4 +27,5 @@ jobs:
           name: firestore-backup-${{ github.run_id }}
           path: .maintenance-output/*.json.gz
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 90
