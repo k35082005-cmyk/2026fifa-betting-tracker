@@ -46,6 +46,7 @@
               <button type="button" data-page-target="stats">05　分類統計</button>
               <button type="button" data-page-target="settlements">06　款項結算</button>
               <button id="adminMenuButton" type="button" data-page-target="admin" hidden>07　管理員中心</button>
+              <button id="personalHistoryMenuButton" type="button" data-page-target="personal-history" hidden>08　個人歷史總覽</button>
             </nav>
           </div>
         </div>
@@ -282,6 +283,45 @@
             </div>
           </div>
           <div id="adminAuditLogs" class="admin-audit-list"></div>
+        </div>
+      </section>
+
+      <section class="card analysis-card personal-history-card" data-page="personal-history" hidden>
+        <div class="section-title">
+          <span>08</span>
+          <h2>Wei 個人歷史總覽</h2>
+        </div>
+        <p class="section-description">僅管理員可見。合併網站建立前的私人投注與目前 Wei 的投注，不影響 02～06 的群組資料與結算。</p>
+
+        <div id="personalHistorySummary" class="summary-grid personal-history-summary"></div>
+
+        <div class="analysis-filters personal-history-filters" aria-label="個人歷史篩選">
+          <label><span>資料來源</span><select id="personalSourceFilter"><option value="all">早期＋目前</option><option value="legacy">網站建立前</option><option value="current">目前網站</option></select></label>
+          <label><span>投注類型</span><select id="personalTypeFilter"><option value="all">所有類型</option><option value="correct_score">正確比分</option><option value="match_winner">全場獨贏</option></select></label>
+        </div>
+
+        <div class="personal-history-panels">
+          <div class="panel">
+            <h3>資料組成</h3>
+            <div id="personalSourceBreakdown" class="personal-breakdown"></div>
+          </div>
+          <div class="panel">
+            <h3>投注表現</h3>
+            <div id="personalPerformanceBreakdown" class="personal-breakdown"></div>
+          </div>
+        </div>
+
+        <div class="dashboard-subheading personal-history-heading">
+          <div>
+            <h3>個人投注明細</h3>
+            <span id="personalHistoryRange">尚無資料</span>
+          </div>
+        </div>
+        <div class="table-wrap personal-history-table-wrap">
+          <table class="personal-history-table">
+            <thead><tr><th>來源</th><th>比賽日期</th><th>賽事</th><th>玩法</th><th>選擇</th><th>賠率</th><th>金額</th><th>結果</th><th>淨輸贏</th></tr></thead>
+            <tbody id="personalHistoryBody"></tbody>
+          </table>
         </div>
       </section>
     </main>

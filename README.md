@@ -11,6 +11,7 @@
 - 只依正規時間比分自動判定輸贏。
 - 重複投注提醒與單次送出的 idempotency key。
 - 管理員結算、資料修正、手動同步、排程狀態與異動紀錄。
+- 管理員專屬個人歷史總覽，合併 `personalHistoryBets` 的網站建立前投注與目前 Wei 紀錄，不影響群組頁面。
 - GitHub Actions 背景結算及每日 Firestore JSON 備份。
 
 ## 本機啟動

@@ -205,7 +205,7 @@ function serialize(value) {
 }
 
 async function createBackup(firestore) {
-  const names = ["bets", "settlements", "auditLogs", "maintenanceRuns"];
+  const names = ["bets", "settlements", "auditLogs", "maintenanceRuns", "personalHistoryBets"];
   const collections = {};
   for (const name of names) {
     const snapshot = await firestore.collection(name).get();

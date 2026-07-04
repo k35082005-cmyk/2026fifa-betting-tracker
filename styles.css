@@ -1224,6 +1224,57 @@ td:last-child {
   text-align: right;
 }
 
+.personal-history-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 20px;
+}
+
+.personal-history-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.personal-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.personal-breakdown-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.personal-history-heading {
+  margin-top: 28px;
+}
+
+.personal-history-table {
+  min-width: 940px;
+  table-layout: fixed;
+}
+
+.personal-history-table th:nth-child(1) { width: 105px; }
+.personal-history-table th:nth-child(2) { width: 105px; }
+.personal-history-table th:nth-child(3) { width: 210px; }
+.personal-history-table th:nth-child(4) { width: 100px; }
+.personal-history-table th:nth-child(5) { width: 85px; }
+.personal-history-table th:nth-child(6) { width: 75px; }
+.personal-history-table th:nth-child(7) { width: 85px; }
+.personal-history-table th:nth-child(8) { width: 75px; }
+.personal-history-table th:nth-child(9) { width: 100px; }
+
+.personal-history-table th:nth-child(n + 6),
+.personal-history-table td:nth-child(n + 6) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .empty {
   padding: 22px 0;
   color: var(--muted);
@@ -1284,6 +1335,10 @@ td:last-child {
 
   .admin-correction-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .personal-history-panels {
+    grid-template-columns: 1fr;
   }
 
   .admin-record-field,
@@ -1402,6 +1457,10 @@ td:last-child {
   }
 
   .filtered-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .personal-history-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

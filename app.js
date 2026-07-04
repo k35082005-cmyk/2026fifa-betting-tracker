@@ -63,6 +63,14 @@ const adminOddsInput = document.getElementById("adminOddsInput");
 const adminAmountInput = document.getElementById("adminAmountInput");
 const adminCorrectionBtn = document.getElementById("adminCorrectionBtn");
 const adminAuditLogs = document.getElementById("adminAuditLogs");
+const personalHistoryMenuButton = document.getElementById("personalHistoryMenuButton");
+const personalHistorySummary = document.getElementById("personalHistorySummary");
+const personalSourceFilter = document.getElementById("personalSourceFilter");
+const personalTypeFilter = document.getElementById("personalTypeFilter");
+const personalSourceBreakdown = document.getElementById("personalSourceBreakdown");
+const personalPerformanceBreakdown = document.getElementById("personalPerformanceBreakdown");
+const personalHistoryRange = document.getElementById("personalHistoryRange");
+const personalHistoryBody = document.getElementById("personalHistoryBody");
 const submitButton = form.querySelector('[type="submit"]');
 const menuToggle = document.getElementById("menuToggle");
 const currentPageLabel = document.getElementById("currentPageLabel");
@@ -88,9 +96,11 @@ let stopFirestoreSync = null;
 let stopSettlementsSync = null;
 let stopAuditSync = null;
 let stopMaintenanceSync = null;
+let stopPersonalHistorySync = null;
 let settlements = [];
 let auditLogs = [];
 let maintenanceRuns = [];
+let personalHistoryRecords = [];
 let statsDateInitialized = false;
 let latestUpcomingStatsDate = "";
 let settlementRangeInitialized = false;
@@ -1240,6 +1250,119 @@ function renderAdminPage() {
   populateAdminRecordSelect();
 }
 
+function getCombinedPersonalRecords() {
+  const legacy = personalHistoryRecords.map((record) => ({
+    ...record,
+    sourceGroup: "legacy",
+    sourceLabel: "網站建立前",
+    payout: Number(record.payout || 0),
+    netAmount: Number(record.netAmount || 0),
+  }));
+  const current = records
+    .filter((record) => record.memberUid === ADMIN_UID || (!record.memberUid && record.member === "Wei"))
+    .map((record) => {
+      const settled = record.result === "win" || record.result === "loss";
+      const payout = settled ? getRecordPayout(record) : 0;
+      return {
+        ...record,
+        id: `current:${record.id}`,
+        sourceGroup: "current",
+        sourceLabel: "目前網站",
+        betType: "correct_score",
+        selection: normalizeScore(record.note),
+        actualScore: record.settledScore || "",
+        payout,
+        netAmount: settled ? roundMoney(payout - Number(record.amount || 0)) : 0,
+      };
+    });
+  return [...legacy, ...current];
+}
+
+function getPersonalHistoryStats(items) {
+  return items.reduce((stats, item) => {
+    const amount = Number(item.amount || 0);
+    stats.count += 1;
+    stats.totalAmount = roundMoney(stats.totalAmount + amount);
+    if (item.result === "win" || item.result === "loss") {
+      stats.settledCount += 1;
+      stats.payout = roundMoney(stats.payout + Number(item.payout || 0));
+      stats.netAmount = roundMoney(stats.netAmount + Number(item.netAmount || 0));
+      if (item.result === "win") stats.winCount += 1;
+    } else {
+      stats.pendingCount += 1;
+    }
+    if (item.betType === "correct_score") stats.correctScoreCount += 1;
+    if (item.betType === "match_winner") stats.matchWinnerCount += 1;
+    return stats;
+  }, {
+    count: 0, totalAmount: 0, settledCount: 0, pendingCount: 0,
+    payout: 0, netAmount: 0, winCount: 0, correctScoreCount: 0, matchWinnerCount: 0,
+  });
+}
+
+function getFilteredPersonalHistory() {
+  return getCombinedPersonalRecords().filter((record) =>
+    (personalSourceFilter.value === "all" || record.sourceGroup === personalSourceFilter.value)
+    && (personalTypeFilter.value === "all" || record.betType === personalTypeFilter.value)
+  );
+}
+
+function getPersonalBreakdownRow(label, items) {
+  const stats = getPersonalHistoryStats(items);
+  return `<div class="personal-breakdown-row"><span>${escapeHtml(label)} · ${stats.count} 筆</span><strong class="${getMoneyToneClass(stats.netAmount)}">${formatSignedCurrency(stats.netAmount)}</strong></div>`;
+}
+
+function renderPersonalHistory() {
+  if (!isCurrentUserAdmin()) return;
+  const allItems = getCombinedPersonalRecords();
+  const items = getFilteredPersonalHistory().sort((a, b) =>
+    String(b.matchDate || "").localeCompare(String(a.matchDate || ""))
+    || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+  );
+  const stats = getPersonalHistoryStats(items);
+  const settledCorrectScores = items.filter((item) => item.betType === "correct_score" && item.result !== "pending");
+  const correctScoreWins = settledCorrectScores.filter((item) => item.result === "win").length;
+  const hitRate = settledCorrectScores.length ? `${((correctScoreWins / settledCorrectScores.length) * 100).toFixed(1)}%` : "—";
+
+  personalHistorySummary.innerHTML = [
+    ["投注筆數", `${stats.count} 筆`, ""],
+    ["投注金額", formatCurrency(stats.totalAmount), ""],
+    ["總派彩", formatCurrency(stats.payout), ""],
+    ["淨輸贏", formatSignedCurrency(stats.netAmount), getMoneyToneClass(stats.netAmount)],
+    ["正確比分命中率", hitRate, ""],
+    ["待開獎", `${stats.pendingCount} 筆`, ""],
+  ].map(([label, value, tone]) => `<div class="summary-item"><span>${escapeHtml(label)}</span><strong class="${tone}">${escapeHtml(value)}</strong></div>`).join("");
+
+  personalSourceBreakdown.innerHTML = [
+    getPersonalBreakdownRow("網站建立前", allItems.filter((item) => item.sourceGroup === "legacy")),
+    getPersonalBreakdownRow("目前網站", allItems.filter((item) => item.sourceGroup === "current")),
+  ].join("");
+  personalPerformanceBreakdown.innerHTML = [
+    getPersonalBreakdownRow("正確比分", items.filter((item) => item.betType === "correct_score")),
+    getPersonalBreakdownRow("全場獨贏", items.filter((item) => item.betType === "match_winner")),
+  ].join("");
+
+  const dates = items.map((item) => item.matchDate).filter(Boolean).sort();
+  personalHistoryRange.textContent = dates.length
+    ? `${dates[0]} ～ ${dates.at(-1)} · ${items.length} 筆`
+    : "尚無資料";
+  personalHistoryBody.innerHTML = items.length
+    ? items.map((item) => `
+        <tr>
+          <td>${escapeHtml(item.sourceLabel)}</td>
+          <td>${escapeHtml(item.matchDate || "—")}</td>
+          <td>${escapeHtml(item.match || "—")}</td>
+          <td>${item.betType === "match_winner" ? "全場獨贏" : "正確比分"}</td>
+          <td>${escapeHtml(item.selection || item.note || "—")}</td>
+          <td>${Number(item.odds || 0).toFixed(2)}</td>
+          <td>${formatCurrency(item.amount)}</td>
+          <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
+          <td class="${getMoneyToneClass(item.netAmount)}">${item.result === "pending" ? "—" : formatSignedCurrency(item.netAmount)}</td>
+        </tr>
+      `).join("")
+    : '<tr><td colspan="9" class="empty">這個篩選條件沒有個人投注紀錄</td></tr>';
+}
+
 function renderRecords() {
   const searchText = searchInput.value.trim().toLowerCase();
   const memberValue = filterMember.value;
@@ -1306,11 +1429,12 @@ function render() {
   renderSettlementPage();
   renderRecords();
   renderAdminPage();
+  renderPersonalHistory();
 }
 
 function setActivePage(pageName, { updateHash = true } = {}) {
   const allowedPages = ["entry", "records", "overview", "analysis", "stats", "settlements"];
-  if (isCurrentUserAdmin()) allowedPages.push("admin");
+  if (isCurrentUserAdmin()) allowedPages.push("admin", "personal-history");
   const validPage = allowedPages.includes(pageName) ? pageName : "entry";
   const pageLabels = {
     entry: "01　新增紀錄",
@@ -1320,6 +1444,7 @@ function setActivePage(pageName, { updateHash = true } = {}) {
     stats: "05　分類統計",
     settlements: "06　款項結算",
     admin: "07　管理員中心",
+    "personal-history": "08　個人歷史總覽",
   };
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
@@ -1343,21 +1468,25 @@ function updateAuthUI(user = auth?.currentUser) {
   logoutBtn.hidden = !isLoggedIn;
   memberInput.value = isLoggedIn ? getMemberDisplayName(user) : "";
   adminMenuButton.hidden = user?.uid !== ADMIN_UID;
+  personalHistoryMenuButton.hidden = user?.uid !== ADMIN_UID;
   submitButton.disabled = !isLoggedIn;
   submitButton.title = isLoggedIn ? "" : "請先使用 Google 登入";
   syncHint.textContent = isLoggedIn
     ? "已連接共享雲端資料；所有登入成員會看到相同紀錄。"
     : "未登入時，資料只會儲存在這台裝置。";
-  if (user?.uid !== ADMIN_UID && location.hash === "#admin") setActivePage("entry");
+  if (user?.uid !== ADMIN_UID && ["#admin", "#personal-history"].includes(location.hash)) setActivePage("entry");
 }
 
 function startAdminSync() {
   stopAuditSync?.();
   stopMaintenanceSync?.();
+  stopPersonalHistorySync?.();
   stopAuditSync = null;
   stopMaintenanceSync = null;
+  stopPersonalHistorySync = null;
   auditLogs = [];
   maintenanceRuns = [];
+  personalHistoryRecords = [];
   if (!isCurrentUserAdmin() || !firestore) return;
 
   stopAuditSync = firestore.collection("auditLogs").orderBy("occurredAt", "desc").limit(100).onSnapshot(
@@ -1373,6 +1502,13 @@ function startAdminSync() {
       renderAdminPage();
     },
     (error) => console.error("無法讀取排程狀態：", error)
+  );
+  stopPersonalHistorySync = firestore.collection("personalHistoryBets").onSnapshot(
+    (snapshot) => {
+      personalHistoryRecords = snapshot.docs.map((document) => ({ ...document.data(), id: document.id }));
+      renderPersonalHistory();
+    },
+    (error) => console.error("無法讀取個人歷史紀錄：", error)
   );
 }
 
@@ -1527,6 +1663,10 @@ exportBtn.addEventListener("click", () => {
     renderStatsPanels(statsRecords);
     renderFilteredSummary(statsRecords);
   });
+});
+
+[personalSourceFilter, personalTypeFilter].forEach((element) => {
+  element.addEventListener("change", renderPersonalHistory);
 });
 
 [settlementStartInput, settlementEndInput].forEach((element) => {
@@ -1757,9 +1897,12 @@ logoutBtn.addEventListener("click", async () => {
     stopAuditSync = null;
     stopMaintenanceSync?.();
     stopMaintenanceSync = null;
+    stopPersonalHistorySync?.();
+    stopPersonalHistorySync = null;
     settlements = [];
     auditLogs = [];
     maintenanceRuns = [];
+    personalHistoryRecords = [];
     await auth?.signOut();
   } catch (error) {
     window.alert(`登出失敗：${error.message}`);
