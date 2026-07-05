@@ -1300,6 +1300,20 @@ function getPersonalHistoryStats(items) {
   });
 }
 
+function getPersonalFixtureStats(items) {
+  const fixtures = new Map();
+  items
+    .filter((item) => item.betType === "correct_score" && (item.result === "win" || item.result === "loss"))
+    .forEach((item) => {
+      const matchKey = normalizeMatchKey(item.match);
+      const fixtureKey = `${item.matchDate || "unknown-date"}::${matchKey || item.matchId || item.id}`;
+      fixtures.set(fixtureKey, (fixtures.get(fixtureKey) || false) || item.result === "win");
+    });
+
+  const won = [...fixtures.values()].filter(Boolean).length;
+  return { total: fixtures.size, won };
+}
+
 function getFilteredPersonalHistory() {
   return getCombinedPersonalRecords().filter((record) =>
     (personalSourceFilter.value === "all" || record.sourceGroup === personalSourceFilter.value)
@@ -1320,16 +1334,17 @@ function renderPersonalHistory() {
     || String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
   );
   const stats = getPersonalHistoryStats(items);
-  const settledCorrectScores = items.filter((item) => item.betType === "correct_score" && item.result !== "pending");
-  const correctScoreWins = settledCorrectScores.filter((item) => item.result === "win").length;
-  const hitRate = settledCorrectScores.length ? `${((correctScoreWins / settledCorrectScores.length) * 100).toFixed(1)}%` : "—";
+  const fixtureStats = getPersonalFixtureStats(items);
+  const fixtureHitRate = fixtureStats.total
+    ? `${fixtureStats.won} / ${fixtureStats.total} 場（${((fixtureStats.won / fixtureStats.total) * 100).toFixed(1)}%）`
+    : "—";
 
   personalHistorySummary.innerHTML = [
     ["投注筆數", `${stats.count} 筆`, ""],
     ["投注金額", formatCurrency(stats.totalAmount), ""],
     ["總派彩", formatCurrency(stats.payout), ""],
     ["淨輸贏", formatSignedCurrency(stats.netAmount), getMoneyToneClass(stats.netAmount)],
-    ["正確比分命中率", hitRate, ""],
+    ["場次命中率", fixtureHitRate, ""],
     ["待開獎", `${stats.pendingCount} 筆`, ""],
   ].map(([label, value, tone]) => `<div class="summary-item"><span>${escapeHtml(label)}</span><strong class="${tone}">${escapeHtml(value)}</strong></div>`).join("");
 
