@@ -1315,6 +1315,25 @@ td:last-child {
   font-size: 0.75rem;
 }
 
+.team-fixture-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-fixture-status::before {
+  width: 7px;
+  height: 7px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  content: "";
+}
+
+.team-fixture-status.is-completed::before {
+  background: var(--positive);
+  border-color: var(--positive);
+}
+
 .team-matchup-header strong {
   font-size: 0.85rem;
 }
@@ -1464,6 +1483,88 @@ td:last-child {
 
 .team-guide-muted {
   color: var(--muted);
+}
+
+.team-history {
+  border-top: 1px solid var(--line);
+  padding-top: 2px;
+  text-align: left;
+}
+
+.team-history summary {
+  min-height: 36px;
+  padding: 8px 0 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.team-history[open] summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 6px;
+}
+
+.team-history-list {
+  display: grid;
+}
+
+.team-history-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(214, 214, 208, 0.72);
+  text-align: left;
+}
+
+.team-history-row:last-child {
+  border-bottom: 0;
+}
+
+.team-history-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.team-history-row strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-history-row small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.history-result {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--ink);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.history-result.is-w {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.history-result.is-d {
+  background: var(--soft);
+}
+
+.history-result.is-l {
+  border-style: dashed;
+  color: var(--danger);
 }
 
 .empty {
@@ -1657,6 +1758,16 @@ td:last-child {
 
   .team-comparison.away .team-form {
     justify-self: start;
+  }
+
+  .team-matchup-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .team-history-row strong {
+    white-space: normal;
   }
 
   .page-navigation {

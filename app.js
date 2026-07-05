@@ -638,6 +638,7 @@ function getTournamentTeamStats(events, roundOf16TeamIds) {
         score: `${scored}-${conceded}`,
         opponent: competitor.homeAway === "home" ? awayIdentity.name : homeIdentity.name,
         date: event.date,
+        stage: String(event.competitions?.[0]?.altGameNote || "FIFA World Cup").replace(/^FIFA World Cup,\s*/i, ""),
       });
       if (result === "W") team.wins += 1;
       if (result === "D") team.draws += 1;
@@ -685,6 +686,41 @@ function getFormMarkup(form) {
   `).join("") || '<span class="team-guide-muted">—</span>';
 }
 
+function getTeamResultLabel(result) {
+  return { W: "勝", D: "和", L: "敗" }[result] || "—";
+}
+
+function formatTeamGuideMatchDate(dateValue) {
+  return new Date(dateValue).toLocaleDateString("zh-TW", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function getTeamMatchHistoryMarkup(team) {
+  const matches = team.form
+    .slice()
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  if (!matches.length) return '<p class="team-guide-muted">尚無已完成賽事</p>';
+
+  return `
+    <details class="team-history">
+      <summary>逐場戰績（${team.played} 場）</summary>
+      <div class="team-history-list">
+        ${matches.map((match) => `
+          <div class="team-history-row">
+            <span class="history-result is-${match.result.toLowerCase()}">${getTeamResultLabel(match.result)}</span>
+            <div>
+              <strong>${escapeHtml(match.score)} vs ${escapeHtml(match.opponent)}</strong>
+              <small>${escapeHtml(formatTeamGuideMatchDate(match.date))} · ${escapeHtml(match.stage)}</small>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </details>
+  `;
+}
+
 function getTeamComparisonMarkup(team, side) {
   const goalDifference = getGoalDifference(team);
   return `
@@ -700,6 +736,7 @@ function getTeamComparisonMarkup(team, side) {
         <span><small>場均進球</small><strong>${team.played ? (team.goalsFor / team.played).toFixed(1) : "0.0"}</strong></span>
       </div>
       <div class="team-form" aria-label="${escapeHtml(`${team.name} 最近戰績`)}">${getFormMarkup(team.form)}</div>
+      ${getTeamMatchHistoryMarkup(team)}
     </article>
   `;
 }
@@ -711,11 +748,12 @@ function renderTeamGuide() {
     return;
   }
   const { roundOf16Events, statsByTeam } = getTeamGuideData(teamGuideEvents);
+  const completedRoundOf16Count = roundOf16Events.filter((event) => Boolean(calculateRegulationScore(event))).length;
   if (roundOf16Events.length !== 8 || statsByTeam.size !== 16) {
     teamGuideStatus.textContent = `目前 ESPN 僅辨識到 ${roundOf16Events.length} 場 16 強賽、${statsByTeam.size} 支隊伍，請稍後更新。`;
   } else {
     const loadedLabel = teamGuideLoadedAt?.toLocaleString("zh-TW", { hour12: false }) || "";
-    teamGuideStatus.textContent = `已載入 8 場 16 強對戰、16 支隊伍 · 更新時間 ${loadedLabel}`;
+    teamGuideStatus.textContent = `已載入 8 場 16 強對戰、16 支隊伍 · 已賽 ${completedRoundOf16Count}/8 · 更新時間 ${loadedLabel}`;
   }
 
   teamGuideSummary.innerHTML = roundOf16Events.map((event) => {
@@ -726,11 +764,14 @@ function renderTeamGuide() {
     });
     const regulationScore = calculateRegulationScore(event);
     const status = event.competitions?.[0]?.status?.type || event.status?.type || {};
-    const fixtureStatus = status.completed && regulationScore ? `正規時間 ${regulationScore}` : kickoff;
+    const fixtureCompleted = status.completed && regulationScore;
+    const fixtureStatus = fixtureCompleted
+      ? `已賽 · 正規時間 ${regulationScore}`
+      : `${status.state === "in" ? "進行中" : "未賽"} · ${kickoff}`;
     return `
       <section class="team-matchup">
         <div class="team-matchup-header">
-          <span>${escapeHtml(fixtureStatus)}</span>
+          <span class="team-fixture-status ${fixtureCompleted ? "is-completed" : "is-scheduled"}">${escapeHtml(fixtureStatus)}</span>
           <strong>${escapeHtml(home.name)} VS ${escapeHtml(away.name)}</strong>
         </div>
         <div class="team-comparison-grid">
@@ -2162,5 +2203,8 @@ if (auth) {
 matchDateInput.value = toLocalDateValue();
 setActivePage(location.hash.replace("#", ""), { updateHash: false });
 refreshWorldCupData();
-window.setInterval(() => refreshWorldCupData(), MATCH_REFRESH_INTERVAL);
+window.setInterval(() => {
+  refreshWorldCupData();
+  if (teamGuideEvents.length || location.hash === "#team-guide") refreshTeamGuide();
+}, MATCH_REFRESH_INTERVAL);
 render();
