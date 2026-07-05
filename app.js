@@ -1,6 +1,7 @@
 const STORAGE_KEY = "fifa-bet-tracker-v1";
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
 const OPENLIGADB_URL = "https://api.openligadb.de/getmatchdata/wm26/2026";
+const WORLD_CUP_TOURNAMENT_RANGE = "20260611-20260719";
 const MATCH_REFRESH_INTERVAL = 5 * 60 * 1000;
 const ADMIN_UID = "qnPcedb81rXsq5o6BjMS4FiqycZ2";
 const MEMBER_NAMES_BY_UID = Object.freeze({
@@ -71,6 +72,10 @@ const personalSourceBreakdown = document.getElementById("personalSourceBreakdown
 const personalPerformanceBreakdown = document.getElementById("personalPerformanceBreakdown");
 const personalHistoryRange = document.getElementById("personalHistoryRange");
 const personalHistoryBody = document.getElementById("personalHistoryBody");
+const refreshTeamGuideBtn = document.getElementById("refreshTeamGuideBtn");
+const teamGuideStatus = document.getElementById("teamGuideStatus");
+const teamGuideSummary = document.getElementById("teamGuideSummary");
+const teamGuideRanking = document.getElementById("teamGuideRanking");
 const submitButton = form.querySelector('[type="submit"]');
 const menuToggle = document.getElementById("menuToggle");
 const currentPageLabel = document.getElementById("currentPageLabel");
@@ -85,6 +90,7 @@ const COUNTRY_NAMES_ZH = {
   Algeria: "阿爾及利亞", Australia: "澳洲", Egypt: "埃及", Argentina: "阿根廷", "Cape Verde": "維德角",
   Colombia: "哥倫比亞", Ghana: "迦納", Germany: "德國", Japan: "日本", France: "法國", Brazil: "巴西",
   Mexico: "墨西哥", Canada: "加拿大", Morocco: "摩洛哥", Tunisia: "突尼西亞", Uruguay: "烏拉圭",
+  Norway: "挪威", Paraguay: "巴拉圭",
   Ecuador: "厄瓜多", "South Korea": "韓國", Korea: "韓國", Iran: "伊朗", Qatar: "卡達", "Saudi Arabia": "沙烏地阿拉伯"
 };
 
@@ -105,6 +111,9 @@ let statsDateInitialized = false;
 let latestUpcomingStatsDate = "";
 let settlementRangeInitialized = false;
 let activeSubmissionId = createId();
+let teamGuideEvents = [];
+let teamGuideLoadedAt = null;
+let teamGuideLoading = false;
 
 const LEGACY_CREATED_DATE = "2026-07-02";
 const LEGACY_FIXTURES = [
@@ -569,6 +578,214 @@ function calculateRegulationScore(event) {
   });
 
   return `${score.home}-${score.away}`;
+}
+
+function getEventTeam(event, homeAway) {
+  return getCompetitor(event.competitions?.[0], homeAway);
+}
+
+function getTeamIdentity(competitor) {
+  const team = competitor?.team || {};
+  return {
+    id: String(team.id || competitor?.id || ""),
+    name: localizeCountryName(team.displayName || team.shortDisplayName || team.name || "未知隊伍"),
+    abbreviation: String(team.abbreviation || "").toUpperCase(),
+    logo: String(team.logo || ""),
+  };
+}
+
+function getTournamentTeamStats(events, roundOf16TeamIds) {
+  const statsByTeam = new Map();
+  const ensureTeam = (competitor) => {
+    const identity = getTeamIdentity(competitor);
+    if (!statsByTeam.has(identity.id)) {
+      statsByTeam.set(identity.id, {
+        ...identity,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        cleanSheets: 0,
+        form: [],
+      });
+    }
+    return statsByTeam.get(identity.id);
+  };
+
+  events.forEach((event) => {
+    const score = calculateRegulationScore(event);
+    if (!score) return;
+    const [homeGoals, awayGoals] = score.split("-").map(Number);
+    const home = getEventTeam(event, "home");
+    const away = getEventTeam(event, "away");
+    if (!home || !away) return;
+    const homeIdentity = getTeamIdentity(home);
+    const awayIdentity = getTeamIdentity(away);
+    if (!roundOf16TeamIds.has(homeIdentity.id) && !roundOf16TeamIds.has(awayIdentity.id)) return;
+
+    [[home, homeGoals, awayGoals], [away, awayGoals, homeGoals]].forEach(([competitor, scored, conceded]) => {
+      const team = ensureTeam(competitor);
+      if (!roundOf16TeamIds.has(team.id)) return;
+      team.played += 1;
+      team.goalsFor += scored;
+      team.goalsAgainst += conceded;
+      if (conceded === 0) team.cleanSheets += 1;
+      const result = scored > conceded ? "W" : scored < conceded ? "L" : "D";
+      team.form.push({
+        result,
+        score: `${scored}-${conceded}`,
+        opponent: competitor.homeAway === "home" ? awayIdentity.name : homeIdentity.name,
+        date: event.date,
+      });
+      if (result === "W") team.wins += 1;
+      if (result === "D") team.draws += 1;
+      if (result === "L") team.losses += 1;
+    });
+  });
+
+  return statsByTeam;
+}
+
+function getTeamGuideData(events) {
+  const roundOf16Events = events
+    .filter((event) => /Round of 16/i.test(event.competitions?.[0]?.altGameNote || ""))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const roundOf16TeamIds = new Set(roundOf16Events.flatMap((event) => [
+    getTeamIdentity(getEventTeam(event, "home")).id,
+    getTeamIdentity(getEventTeam(event, "away")).id,
+  ]).filter(Boolean));
+  const statsByTeam = getTournamentTeamStats(events, roundOf16TeamIds);
+  roundOf16Events.forEach((event) => {
+    [getEventTeam(event, "home"), getEventTeam(event, "away")].forEach((competitor) => {
+      const identity = getTeamIdentity(competitor);
+      if (!statsByTeam.has(identity.id)) {
+        statsByTeam.set(identity.id, {
+          ...identity, played: 0, wins: 0, draws: 0, losses: 0,
+          goalsFor: 0, goalsAgainst: 0, cleanSheets: 0, form: [],
+        });
+      }
+    });
+  });
+  return { roundOf16Events, statsByTeam };
+}
+
+function getTeamPoints(team) {
+  return team.wins * 3 + team.draws;
+}
+
+function getGoalDifference(team) {
+  return team.goalsFor - team.goalsAgainst;
+}
+
+function getFormMarkup(form) {
+  return form.slice(-5).map((match) => `
+    <span class="form-result is-${match.result.toLowerCase()}" title="${escapeHtml(`${match.opponent} ${match.score}`)}">${match.result}</span>
+  `).join("") || '<span class="team-guide-muted">—</span>';
+}
+
+function getTeamComparisonMarkup(team, side) {
+  const goalDifference = getGoalDifference(team);
+  return `
+    <article class="team-comparison ${side}">
+      <div class="team-comparison-name">
+        ${team.logo ? `<img src="${escapeHtml(team.logo)}" alt="" loading="lazy" />` : ""}
+        <div><strong>${escapeHtml(team.name)}</strong><span>${team.wins} 勝 ${team.draws} 和 ${team.losses} 敗</span></div>
+      </div>
+      <div class="team-comparison-numbers">
+        <span><small>進球</small><strong>${team.goalsFor}</strong></span>
+        <span><small>失球</small><strong>${team.goalsAgainst}</strong></span>
+        <span><small>淨勝</small><strong>${goalDifference > 0 ? "+" : ""}${goalDifference}</strong></span>
+        <span><small>場均進球</small><strong>${team.played ? (team.goalsFor / team.played).toFixed(1) : "0.0"}</strong></span>
+      </div>
+      <div class="team-form" aria-label="${escapeHtml(`${team.name} 最近戰績`)}">${getFormMarkup(team.form)}</div>
+    </article>
+  `;
+}
+
+function renderTeamGuide() {
+  if (!teamGuideEvents.length) {
+    teamGuideSummary.innerHTML = "";
+    teamGuideRanking.innerHTML = "";
+    return;
+  }
+  const { roundOf16Events, statsByTeam } = getTeamGuideData(teamGuideEvents);
+  if (roundOf16Events.length !== 8 || statsByTeam.size !== 16) {
+    teamGuideStatus.textContent = `目前 ESPN 僅辨識到 ${roundOf16Events.length} 場 16 強賽、${statsByTeam.size} 支隊伍，請稍後更新。`;
+  } else {
+    const loadedLabel = teamGuideLoadedAt?.toLocaleString("zh-TW", { hour12: false }) || "";
+    teamGuideStatus.textContent = `已載入 8 場 16 強對戰、16 支隊伍 · 更新時間 ${loadedLabel}`;
+  }
+
+  teamGuideSummary.innerHTML = roundOf16Events.map((event) => {
+    const home = statsByTeam.get(getTeamIdentity(getEventTeam(event, "home")).id);
+    const away = statsByTeam.get(getTeamIdentity(getEventTeam(event, "away")).id);
+    const kickoff = new Date(event.date).toLocaleString("zh-TW", {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    });
+    const regulationScore = calculateRegulationScore(event);
+    const status = event.competitions?.[0]?.status?.type || event.status?.type || {};
+    const fixtureStatus = status.completed && regulationScore ? `正規時間 ${regulationScore}` : kickoff;
+    return `
+      <section class="team-matchup">
+        <div class="team-matchup-header">
+          <span>${escapeHtml(fixtureStatus)}</span>
+          <strong>${escapeHtml(home.name)} VS ${escapeHtml(away.name)}</strong>
+        </div>
+        <div class="team-comparison-grid">
+          ${getTeamComparisonMarkup(home, "home")}
+          <span class="team-versus" aria-hidden="true">VS</span>
+          ${getTeamComparisonMarkup(away, "away")}
+        </div>
+      </section>
+    `;
+  }).join("");
+
+  const ranking = Array.from(statsByTeam.values()).sort((a, b) =>
+    getTeamPoints(b) - getTeamPoints(a)
+    || getGoalDifference(b) - getGoalDifference(a)
+    || b.goalsFor - a.goalsFor
+    || a.name.localeCompare(b.name, "zh-Hant")
+  );
+  teamGuideRanking.innerHTML = `
+    <table class="team-ranking-table">
+      <thead><tr><th>#</th><th>隊伍</th><th>賽</th><th>勝</th><th>和</th><th>敗</th><th>進球</th><th>失球</th><th>淨勝</th><th>零封</th><th>近況</th></tr></thead>
+      <tbody>${ranking.map((team, index) => `
+        <tr>
+          <td>${index + 1}</td>
+          <td><span class="ranking-team">${team.logo ? `<img src="${escapeHtml(team.logo)}" alt="" loading="lazy" />` : ""}<strong>${escapeHtml(team.name)}</strong></span></td>
+          <td>${team.played}</td><td>${team.wins}</td><td>${team.draws}</td><td>${team.losses}</td>
+          <td>${team.goalsFor}</td><td>${team.goalsAgainst}</td>
+          <td>${getGoalDifference(team) > 0 ? "+" : ""}${getGoalDifference(team)}</td>
+          <td>${team.cleanSheets}</td><td><span class="team-form">${getFormMarkup(team.form)}</span></td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+  `;
+}
+
+async function refreshTeamGuide() {
+  if (teamGuideLoading) return;
+  teamGuideLoading = true;
+  refreshTeamGuideBtn.disabled = true;
+  refreshTeamGuideBtn.textContent = "更新中…";
+  teamGuideStatus.textContent = "正在讀取 ESPN 本屆世界盃賽事…";
+  try {
+    const response = await fetch(`${ESPN_SCOREBOARD_URL}?limit=200&dates=${WORLD_CUP_TOURNAMENT_RANGE}`);
+    if (!response.ok) throw new Error(`ESPN API 回應 ${response.status}`);
+    const data = await response.json();
+    teamGuideEvents = Array.isArray(data.events) ? data.events : [];
+    teamGuideLoadedAt = new Date();
+    renderTeamGuide();
+  } catch (error) {
+    console.error("無法載入 16 強戰力參考：", error);
+    teamGuideStatus.textContent = `16 強資料載入失敗：${error.message}`;
+  } finally {
+    teamGuideLoading = false;
+    refreshTeamGuideBtn.disabled = false;
+    refreshTeamGuideBtn.textContent = "更新戰績";
+  }
 }
 
 function normalizeEspnMatch(event) {
@@ -1448,7 +1665,7 @@ function render() {
 }
 
 function setActivePage(pageName, { updateHash = true } = {}) {
-  const allowedPages = ["entry", "records", "overview", "analysis", "stats", "settlements"];
+  const allowedPages = ["entry", "records", "overview", "analysis", "stats", "settlements", "team-guide"];
   if (isCurrentUserAdmin()) allowedPages.push("admin", "personal-history");
   const validPage = allowedPages.includes(pageName) ? pageName : "entry";
   const pageLabels = {
@@ -1458,8 +1675,9 @@ function setActivePage(pageName, { updateHash = true } = {}) {
     analysis: "04　比分分析",
     stats: "05　分類統計",
     settlements: "06　款項結算",
-    admin: "07　管理員中心",
-    "personal-history": "08　個人歷史總覽",
+    "team-guide": "07　16 強戰力參考",
+    admin: "08　管理員中心",
+    "personal-history": "09　個人歷史總覽",
   };
   pageViews.forEach((view) => {
     view.hidden = view.dataset.page !== validPage;
@@ -1472,6 +1690,7 @@ function setActivePage(pageName, { updateHash = true } = {}) {
   currentPageLabel.textContent = pageLabels[validPage];
   menuToggle.setAttribute("aria-label", `開啟頁面選單，目前位於${pageLabels[validPage]}`);
   if (updateHash) history.replaceState(null, "", validPage === "entry" ? "#entry" : `#${validPage}`);
+  if (validPage === "team-guide" && !teamGuideEvents.length) refreshTeamGuide();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1812,6 +2031,7 @@ document.addEventListener("click", (event) => {
 matchInput.addEventListener("change", updateMatchMode);
 matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
+refreshTeamGuideBtn.addEventListener("click", refreshTeamGuide);
 
 adminRecordSelect.addEventListener("change", () => {
   const record = records.find((item) => item.id === adminRecordSelect.value);

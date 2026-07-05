@@ -1275,6 +1275,197 @@ td:last-child {
   font-variant-numeric: tabular-nums;
 }
 
+.team-guide-header .section-title {
+  margin-bottom: 24px;
+}
+
+.team-guide-header .section-description {
+  margin-bottom: 0;
+}
+
+.team-guide-status {
+  margin: 0 0 24px;
+  border-block: 1px solid var(--line);
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.team-guide-summary {
+  display: grid;
+  gap: 18px;
+}
+
+.team-matchup {
+  border: 1px solid var(--line);
+  background: rgba(245, 245, 242, 0.48);
+}
+
+.team-matchup-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--ink);
+  padding: 11px 14px;
+}
+
+.team-matchup-header span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.team-matchup-header strong {
+  font-size: 0.85rem;
+}
+
+.team-comparison-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.team-comparison {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.team-comparison.away {
+  text-align: right;
+}
+
+.team-comparison-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.team-comparison.away .team-comparison-name {
+  flex-direction: row-reverse;
+}
+
+.team-comparison-name img,
+.ranking-team img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.team-comparison-name div {
+  display: grid;
+}
+
+.team-comparison-name strong {
+  font-size: 1rem;
+}
+
+.team-comparison-name span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.team-comparison-numbers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.team-comparison-numbers span {
+  display: grid;
+  gap: 2px;
+  padding: 8px 5px;
+}
+
+.team-comparison-numbers small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.team-comparison-numbers strong {
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-versus {
+  display: grid;
+  place-items: center;
+  border-inline: 1px solid var(--line);
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+.team-form {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.team-comparison.away .team-form {
+  justify-self: end;
+}
+
+.form-result {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid var(--ink);
+  font-family: monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.form-result.is-w {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.form-result.is-d {
+  background: var(--soft);
+}
+
+.form-result.is-l {
+  border-style: dashed;
+  color: var(--danger);
+}
+
+.team-ranking-heading {
+  margin-top: 34px;
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 10px;
+}
+
+.team-ranking-table {
+  min-width: 760px;
+}
+
+.team-ranking-table th:not(:nth-child(2)),
+.team-ranking-table td:not(:nth-child(2)) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-ranking-table th:last-child,
+.team-ranking-table td:last-child {
+  min-width: 155px;
+}
+
+.ranking-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ranking-team img {
+  width: 26px;
+  height: 26px;
+}
+
+.team-guide-muted {
+  color: var(--muted);
+}
+
 .empty {
   padding: 22px 0;
   color: var(--muted);
@@ -1339,6 +1530,10 @@ td:last-child {
 
   .personal-history-panels {
     grid-template-columns: 1fr;
+  }
+
+  .team-comparison-numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-record-field,
@@ -1436,6 +1631,32 @@ td:last-child {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
+  }
+
+  .team-guide-header .button {
+    width: 100%;
+  }
+
+  .team-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .team-versus {
+    min-height: 34px;
+    border: 0;
+    border-block: 1px solid var(--line);
+  }
+
+  .team-comparison.away {
+    text-align: left;
+  }
+
+  .team-comparison.away .team-comparison-name {
+    flex-direction: row;
+  }
+
+  .team-comparison.away .team-form {
+    justify-self: start;
   }
 
   .page-navigation {

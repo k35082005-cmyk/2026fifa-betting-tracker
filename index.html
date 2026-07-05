@@ -45,8 +45,9 @@
               <button type="button" data-page-target="analysis">04　比分分析</button>
               <button type="button" data-page-target="stats">05　分類統計</button>
               <button type="button" data-page-target="settlements">06　款項結算</button>
-              <button id="adminMenuButton" type="button" data-page-target="admin" hidden>07　管理員中心</button>
-              <button id="personalHistoryMenuButton" type="button" data-page-target="personal-history" hidden>08　個人歷史總覽</button>
+              <button type="button" data-page-target="team-guide">07　16 強戰力參考</button>
+              <button id="adminMenuButton" type="button" data-page-target="admin" hidden>08　管理員中心</button>
+              <button id="personalHistoryMenuButton" type="button" data-page-target="personal-history" hidden>09　個人歷史總覽</button>
             </nav>
           </div>
         </div>
@@ -235,9 +236,31 @@
         <div id="settlementHistory" class="settlement-history"></div>
       </section>
 
+      <section class="card analysis-card team-guide-card" data-page="team-guide" hidden>
+        <div class="section-header team-guide-header">
+          <div>
+            <div class="section-title">
+              <span>07</span>
+              <h2>16 強戰力參考</h2>
+            </div>
+            <p class="section-description">依 ESPN 本屆世界盃已完成賽事統計；勝和敗及進失球均採正規時間，不含延長賽與 PK。</p>
+          </div>
+          <button id="refreshTeamGuideBtn" class="button button-light" type="button">更新戰績</button>
+        </div>
+        <p id="teamGuideStatus" class="team-guide-status" aria-live="polite">正在載入 16 強戰績…</p>
+        <div id="teamGuideSummary" class="team-guide-summary"></div>
+        <div class="dashboard-subheading team-ranking-heading">
+          <div>
+            <h3>本屆戰績排行</h3>
+            <span>依積分、淨勝球、進球數排列</span>
+          </div>
+        </div>
+        <div id="teamGuideRanking" class="table-wrap team-ranking-wrap"></div>
+      </section>
+
       <section class="card analysis-card admin-card" data-page="admin" hidden>
         <div class="section-title">
-          <span>07</span>
+          <span>08</span>
           <h2>管理員中心</h2>
         </div>
         <p class="section-description">僅管理員可查看與操作。資料修正、同步及刪除都會留下異動紀錄。</p>
@@ -288,7 +311,7 @@
 
       <section class="card analysis-card personal-history-card" data-page="personal-history" hidden>
         <div class="section-title">
-          <span>08</span>
+          <span>09</span>
           <h2>Wei 個人歷史總覽</h2>
         </div>
         <p class="section-description">僅管理員可見。合併網站建立前的私人投注與目前 Wei 的投注，不影響 02～06 的群組資料與結算。</p>
