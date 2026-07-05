@@ -74,6 +74,8 @@ const personalHistoryRange = document.getElementById("personalHistoryRange");
 const personalHistoryBody = document.getElementById("personalHistoryBody");
 const refreshTeamGuideBtn = document.getElementById("refreshTeamGuideBtn");
 const teamGuideStatus = document.getElementById("teamGuideStatus");
+const teamGuideStageSummary = document.getElementById("teamGuideStageSummary");
+const teamGuideBracket = document.getElementById("teamGuideBracket");
 const teamGuideSummary = document.getElementById("teamGuideSummary");
 const teamGuideRanking = document.getElementById("teamGuideRanking");
 const submitButton = form.querySelector('[type="submit"]');
@@ -594,7 +596,97 @@ function getTeamIdentity(competitor) {
   };
 }
 
-function getTournamentTeamStats(events, roundOf16TeamIds) {
+const KNOCKOUT_STAGES = Object.freeze([
+  { key: "round32", label: "32 強", pattern: /Round of 32/i },
+  { key: "round16", label: "16 強", pattern: /Round of 16/i },
+  { key: "quarterfinals", label: "8 強", pattern: /Quarterfinals?/i },
+  { key: "semifinals", label: "4 強", pattern: /Semifinals?/i },
+  { key: "thirdPlace", label: "季軍戰", pattern: /3rd-Place Match/i },
+  { key: "final", label: "冠軍戰", pattern: /Final$/i },
+]);
+
+function getEventStage(event) {
+  const note = event.competitions?.[0]?.altGameNote || "";
+  return KNOCKOUT_STAGES.find((stage) => stage.pattern.test(note)) || null;
+}
+
+function getTeamNameFromCompetitor(competitor) {
+  return competitor?.team?.displayName || competitor?.team?.shortDisplayName || competitor?.team?.name || "";
+}
+
+function isPlaceholderTeam(competitor) {
+  return /Winner|Loser|TBD/i.test(getTeamNameFromCompetitor(competitor));
+}
+
+function getKnockoutEvents(events) {
+  return events
+    .map((event) => ({ event, stage: getEventStage(event) }))
+    .filter((entry) => entry.stage)
+    .sort((a, b) => String(a.event.date).localeCompare(String(b.event.date)));
+}
+
+function getStageEvents(knockoutEntries, stageKey) {
+  return knockoutEntries.filter((entry) => entry.stage.key === stageKey).map((entry) => entry.event);
+}
+
+function getRealCompetitors(event) {
+  return (event.competitions?.[0]?.competitors || []).filter((competitor) => !isPlaceholderTeam(competitor));
+}
+
+function getAdvancingCompetitor(event) {
+  const competitors = getRealCompetitors(event);
+  return competitors.find((competitor) => competitor.advance === true)
+    || competitors.find((competitor) => competitor.winner === true)
+    || null;
+}
+
+function getCurrentKnockoutContext(knockoutEntries) {
+  const stageSummaries = KNOCKOUT_STAGES.map((stage) => {
+    const events = getStageEvents(knockoutEntries, stage.key);
+    const completed = events.filter((event) => Boolean(calculateRegulationScore(event))).length;
+    return { ...stage, events, completed };
+  }).filter((stage) => stage.events.length);
+  const firstIncomplete = stageSummaries.find((stage) => stage.completed < stage.events.length);
+  const finalStages = stageSummaries.filter((stage) => ["thirdPlace", "final"].includes(stage.key));
+  const currentStage = firstIncomplete && ["thirdPlace", "final"].includes(firstIncomplete.key)
+    ? {
+        key: "finalWeek",
+        label: "決賽週",
+        events: finalStages.flatMap((stage) => stage.events),
+        completed: finalStages.reduce((sum, stage) => sum + stage.completed, 0),
+      }
+    : firstIncomplete || stageSummaries.at(-1) || null;
+  const activeTeamIds = new Set();
+  const activeTeams = new Map();
+
+  if (currentStage) {
+    currentStage.events.forEach((event) => {
+      const completed = Boolean(calculateRegulationScore(event));
+      const competitors = getRealCompetitors(event);
+      const candidates = completed ? [getAdvancingCompetitor(event)].filter(Boolean) : competitors;
+      candidates.forEach((competitor) => {
+        const identity = getTeamIdentity(competitor);
+        if (!identity.id) return;
+        activeTeamIds.add(identity.id);
+        activeTeams.set(identity.id, identity);
+      });
+    });
+  }
+
+  if (!activeTeamIds.size) {
+    const roundOf16Events = getStageEvents(knockoutEntries, "round16");
+    roundOf16Events.flatMap(getRealCompetitors).forEach((competitor) => {
+      const identity = getTeamIdentity(competitor);
+      if (!identity.id) return;
+      activeTeamIds.add(identity.id);
+      activeTeams.set(identity.id, identity);
+    });
+  }
+
+  return { stageSummaries, currentStage, activeTeamIds, activeTeams };
+}
+
+function getTournamentTeamStats(events, teamIds) {
   const statsByTeam = new Map();
   const ensureTeam = (competitor) => {
     const identity = getTeamIdentity(competitor);
@@ -623,11 +715,11 @@ function getTournamentTeamStats(events, roundOf16TeamIds) {
     if (!home || !away) return;
     const homeIdentity = getTeamIdentity(home);
     const awayIdentity = getTeamIdentity(away);
-    if (!roundOf16TeamIds.has(homeIdentity.id) && !roundOf16TeamIds.has(awayIdentity.id)) return;
+    if (!teamIds.has(homeIdentity.id) && !teamIds.has(awayIdentity.id)) return;
 
     [[home, homeGoals, awayGoals], [away, awayGoals, homeGoals]].forEach(([competitor, scored, conceded]) => {
       const team = ensureTeam(competitor);
-      if (!roundOf16TeamIds.has(team.id)) return;
+      if (!teamIds.has(team.id)) return;
       team.played += 1;
       team.goalsFor += scored;
       team.goalsAgainst += conceded;
@@ -650,14 +742,14 @@ function getTournamentTeamStats(events, roundOf16TeamIds) {
 }
 
 function getTeamGuideData(events) {
-  const roundOf16Events = events
-    .filter((event) => /Round of 16/i.test(event.competitions?.[0]?.altGameNote || ""))
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const knockoutEntries = getKnockoutEvents(events);
+  const roundOf16Events = getStageEvents(knockoutEntries, "round16");
   const roundOf16TeamIds = new Set(roundOf16Events.flatMap((event) => [
     getTeamIdentity(getEventTeam(event, "home")).id,
     getTeamIdentity(getEventTeam(event, "away")).id,
   ]).filter(Boolean));
   const statsByTeam = getTournamentTeamStats(events, roundOf16TeamIds);
+  const knockoutContext = getCurrentKnockoutContext(knockoutEntries);
   roundOf16Events.forEach((event) => {
     [getEventTeam(event, "home"), getEventTeam(event, "away")].forEach((competitor) => {
       const identity = getTeamIdentity(competitor);
@@ -669,7 +761,7 @@ function getTeamGuideData(events) {
       }
     });
   });
-  return { roundOf16Events, statsByTeam };
+  return { knockoutEntries, knockoutContext, roundOf16Events, statsByTeam };
 }
 
 function getTeamPoints(team) {
@@ -741,20 +833,112 @@ function getTeamComparisonMarkup(team, side) {
   `;
 }
 
+function getStageProgressText(stage) {
+  return `${stage.completed}/${stage.events.length}`;
+}
+
+function getStageDisplayLabel(stage) {
+  if (!stage) return "尚未載入";
+  if (stage.key === "final" && stage.completed === stage.events.length) return "賽事已完成";
+  if (stage.key === "thirdPlace") return "決賽週";
+  return `${stage.label}進行中`;
+}
+
+function renderTeamStageSummary(knockoutContext) {
+  const { stageSummaries, currentStage, activeTeams } = knockoutContext;
+  const stageRows = stageSummaries.map((stage) => `
+    <span class="${currentStage?.key === stage.key || (currentStage?.key === "finalWeek" && ["thirdPlace", "final"].includes(stage.key)) ? "is-current" : ""}">
+      <small>${escapeHtml(stage.label)}</small>
+      <strong>${escapeHtml(getStageProgressText(stage))}</strong>
+    </span>
+  `).join("");
+  const teamRows = Array.from(activeTeams.values())
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"))
+    .map((team) => `
+      <span class="survivor-chip">
+        ${team.logo ? `<img src="${escapeHtml(team.logo)}" alt="" loading="lazy" />` : ""}
+        ${escapeHtml(team.name)}
+      </span>
+    `).join("");
+
+  teamGuideStageSummary.innerHTML = `
+    <section class="team-stage-card">
+      <span>目前階段</span>
+      <strong>${escapeHtml(getStageDisplayLabel(currentStage))}</strong>
+      <p>${currentStage ? `${currentStage.label} 已完成 ${getStageProgressText(currentStage)} 場` : "等待 ESPN 淘汰賽資料"}</p>
+    </section>
+    <section class="team-stage-card">
+      <span>各階段進度</span>
+      <div class="stage-progress-list">${stageRows || '<span class="team-guide-muted">尚無資料</span>'}</div>
+    </section>
+    <section class="team-stage-card survivors-card">
+      <span>目前存活隊伍</span>
+      <div class="survivor-list">${teamRows || '<span class="team-guide-muted">尚無資料</span>'}</div>
+    </section>
+  `;
+}
+
+function getBracketTeamMarkup(competitor, event) {
+  const identity = getTeamIdentity(competitor);
+  const isPlaceholder = isPlaceholderTeam(competitor);
+  const score = event.status?.type?.completed ? competitor.score : "";
+  const advanced = competitor.advance === true || competitor.winner === true;
+  return `
+    <div class="bracket-team ${isPlaceholder ? "is-placeholder" : ""} ${advanced ? "is-advanced" : ""}">
+      <span>${escapeHtml(identity.name)}</span>
+      <strong>${escapeHtml(score)}</strong>
+    </div>
+  `;
+}
+
+function renderTeamBracket(knockoutEntries) {
+  const stageColumns = KNOCKOUT_STAGES
+    .filter((stage) => stage.key !== "round32")
+    .map((stage) => {
+      const events = getStageEvents(knockoutEntries, stage.key);
+      if (!events.length) return "";
+      return `
+        <section class="bracket-column">
+          <h4>${escapeHtml(stage.label)}</h4>
+          <div class="bracket-games">
+            ${events.map((event) => {
+              const competitors = event.competitions?.[0]?.competitors || [];
+              const kickoff = new Date(event.date).toLocaleString("zh-TW", {
+                month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+              });
+              const score = calculateRegulationScore(event);
+              return `
+                <article class="bracket-game">
+                  <div class="bracket-game-meta">${score ? `已賽 · ${score}` : kickoff}</div>
+                  ${competitors.map((competitor) => getBracketTeamMarkup(competitor, event)).join("")}
+                </article>
+              `;
+            }).join("")}
+          </div>
+        </section>
+      `;
+    }).join("");
+  teamGuideBracket.innerHTML = `<div class="bracket-board">${stageColumns}</div>`;
+}
+
 function renderTeamGuide() {
   if (!teamGuideEvents.length) {
+    teamGuideStageSummary.innerHTML = "";
+    teamGuideBracket.innerHTML = "";
     teamGuideSummary.innerHTML = "";
     teamGuideRanking.innerHTML = "";
     return;
   }
-  const { roundOf16Events, statsByTeam } = getTeamGuideData(teamGuideEvents);
+  const { knockoutEntries, knockoutContext, roundOf16Events, statsByTeam } = getTeamGuideData(teamGuideEvents);
   const completedRoundOf16Count = roundOf16Events.filter((event) => Boolean(calculateRegulationScore(event))).length;
   if (roundOf16Events.length !== 8 || statsByTeam.size !== 16) {
     teamGuideStatus.textContent = `目前 ESPN 僅辨識到 ${roundOf16Events.length} 場 16 強賽、${statsByTeam.size} 支隊伍，請稍後更新。`;
   } else {
     const loadedLabel = teamGuideLoadedAt?.toLocaleString("zh-TW", { hour12: false }) || "";
-    teamGuideStatus.textContent = `已載入 8 場 16 強對戰、16 支隊伍 · 已賽 ${completedRoundOf16Count}/8 · 更新時間 ${loadedLabel}`;
+    teamGuideStatus.textContent = `已載入淘汰賽資料 · 16 強已賽 ${completedRoundOf16Count}/8 · 更新時間 ${loadedLabel}`;
   }
+  renderTeamStageSummary(knockoutContext);
+  renderTeamBracket(knockoutEntries);
 
   teamGuideSummary.innerHTML = roundOf16Events.map((event) => {
     const home = statsByTeam.get(getTeamIdentity(getEventTeam(event, "home")).id);
@@ -1716,7 +1900,7 @@ function setActivePage(pageName, { updateHash = true } = {}) {
     analysis: "04　比分分析",
     stats: "05　分類統計",
     settlements: "06　款項結算",
-    "team-guide": "07　16 強戰力參考",
+    "team-guide": "07　淘汰賽戰力參考",
     admin: "08　管理員中心",
     "personal-history": "09　個人歷史總覽",
   };

@@ -1291,6 +1291,159 @@ td:last-child {
   font-size: 0.8rem;
 }
 
+.team-stage-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1fr) minmax(0, 1.3fr);
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.team-stage-card {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  padding: 14px;
+  background: rgba(245, 245, 242, 0.54);
+}
+
+.team-stage-card > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.team-stage-card > strong {
+  font-size: 1.18rem;
+  font-weight: 600;
+}
+
+.team-stage-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.stage-progress-list,
+.survivor-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.stage-progress-list span,
+.survivor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.52);
+  font-size: 0.76rem;
+}
+
+.stage-progress-list span.is-current {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--white);
+}
+
+.stage-progress-list small {
+  font-size: 0.72rem;
+}
+
+.stage-progress-list strong {
+  font-family: monospace;
+  font-size: 0.72rem;
+}
+
+.survivor-chip img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.team-bracket-heading {
+  margin-top: 8px;
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 10px;
+}
+
+.team-bracket-wrap {
+  margin-bottom: 30px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bracket-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(210px, 1fr));
+  gap: 14px;
+  min-width: 1080px;
+}
+
+.bracket-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.bracket-column h4 {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 7px;
+  font-size: 0.82rem;
+}
+
+.bracket-games {
+  display: grid;
+  gap: 11px;
+}
+
+.bracket-game {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.bracket-game-meta {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.bracket-team {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(214, 214, 208, 0.72);
+}
+
+.bracket-team:last-child {
+  border-bottom: 0;
+}
+
+.bracket-team span {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bracket-team strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.bracket-team.is-placeholder {
+  color: var(--muted);
+}
+
+.bracket-team.is-advanced {
+  background: rgba(20, 122, 62, 0.08);
+}
+
 .team-guide-summary {
   display: grid;
   gap: 18px;
@@ -1630,6 +1783,10 @@ td:last-child {
   }
 
   .personal-history-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .team-stage-summary {
     grid-template-columns: 1fr;
   }
 

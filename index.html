@@ -45,7 +45,7 @@
               <button type="button" data-page-target="analysis">04　比分分析</button>
               <button type="button" data-page-target="stats">05　分類統計</button>
               <button type="button" data-page-target="settlements">06　款項結算</button>
-              <button type="button" data-page-target="team-guide">07　16 強戰力參考</button>
+              <button type="button" data-page-target="team-guide">07　淘汰賽戰力參考</button>
               <button id="adminMenuButton" type="button" data-page-target="admin" hidden>08　管理員中心</button>
               <button id="personalHistoryMenuButton" type="button" data-page-target="personal-history" hidden>09　個人歷史總覽</button>
             </nav>
@@ -241,13 +241,21 @@
           <div>
             <div class="section-title">
               <span>07</span>
-              <h2>16 強戰力參考</h2>
+              <h2>淘汰賽戰力參考</h2>
             </div>
             <p class="section-description">依 ESPN 本屆世界盃已完成賽事統計；勝和敗及進失球均採正規時間，不含延長賽與 PK。</p>
           </div>
           <button id="refreshTeamGuideBtn" class="button button-light" type="button">更新戰績</button>
         </div>
-        <p id="teamGuideStatus" class="team-guide-status" aria-live="polite">正在載入 16 強戰績…</p>
+        <p id="teamGuideStatus" class="team-guide-status" aria-live="polite">正在載入淘汰賽戰績…</p>
+        <div id="teamGuideStageSummary" class="team-stage-summary"></div>
+        <div class="dashboard-subheading team-bracket-heading">
+          <div>
+            <h3>淘汰賽樹狀圖</h3>
+            <span>手機可左右滑動；隊伍確定後會自動替換 Winner 佔位</span>
+          </div>
+        </div>
+        <div id="teamGuideBracket" class="team-bracket-wrap"></div>
         <div id="teamGuideSummary" class="team-guide-summary"></div>
         <div class="dashboard-subheading team-ranking-heading">
           <div>
