@@ -1,14 +1,14 @@
 # 2026 FIFA Betting Tracker
 
-私人小組使用的 2026 FIFA 世界盃正確比分投注紀錄與統計網站。前端使用原生 HTML、CSS、JavaScript，資料儲存在 Firebase Authentication／Cloud Firestore，並部署於 Vercel。
+私人小組使用的 2026 FIFA 世界盃投注紀錄與統計網站，支援正確比分、全場獨贏與冠軍單。前端使用原生 HTML、CSS、JavaScript，資料儲存在 Firebase Authentication／Cloud Firestore，並部署於 Vercel。
 
 ## 主要功能
 
 - Google 登入與固定成員識別。
 - 從 ESPN 世界盃賽程選擇場次，使用穩定的 `matchId` 儲存投注。
 - ESPN 失敗時，已存在投注可使用 OpenLigaDB 的正規時間結果作為備援。
-- 依成員、場次、比分與日期統計。
-- 只依正規時間比分自動判定輸贏。
+- 依成員、場次、玩法、選擇與日期統計；正確比分分布圖只統計正確比分單。
+- 正確比分與全場獨贏只依正規時間判定，不含延長賽與 PK；冠軍單於決賽完成後依 ESPN 冠軍結果判定。
 - 重複投注提醒與單次送出的 idempotency key。
 - 管理員結算、資料修正、手動同步、排程狀態與異動紀錄。
 - 管理員專屬個人歷史總覽，合併 `personalHistoryBets` 的網站建立前投注與目前 Wei 紀錄，不影響群組頁面。

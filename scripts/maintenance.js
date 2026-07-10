@@ -9,6 +9,9 @@ const mode = process.argv[2];
 const TEAM_CODE_ALIASES = Object.freeze({
   ALG: "DZA", CRO: "HRV", DRC: "COD", KSA: "SAU", NED: "NLD", POR: "PRT", SUI: "CHE", URU: "URY",
 });
+const COUNTRY_NAMES_ZH = Object.freeze({
+  England: "英格蘭", Spain: "西班牙", Portugal: "葡萄牙", Croatia: "克羅埃西亞", Switzerland: "瑞士", Algeria: "阿爾及利亞", Australia: "澳洲", Egypt: "埃及", Argentina: "阿根廷", Colombia: "哥倫比亞", Ghana: "迦納", Germany: "德國", Japan: "日本", France: "法國", Brazil: "巴西", Mexico: "墨西哥", Canada: "加拿大", Morocco: "摩洛哥", Tunisia: "突尼西亞", Uruguay: "烏拉圭", Norway: "挪威", Paraguay: "巴拉圭", Ecuador: "厄瓜多", "South Korea": "韓國", Iran: "伊朗", Qatar: "卡達", "Saudi Arabia": "沙烏地阿拉伯", Belgium: "比利時", Senegal: "塞內加爾", "United States": "美國", USA: "美國", Austria: "奧地利",
+});
 
 function getServiceAccount() {
   const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
@@ -131,6 +134,28 @@ function getPredictedScore(bet) {
   return match ? `${Number(match[1])}-${Number(match[2])}` : null;
 }
 
+function getBetType(bet) {
+  return ["correct_score", "match_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+}
+
+function localizeTeamName(name) {
+  return COUNTRY_NAMES_ZH[String(name || "").trim()] || String(name || "").trim();
+}
+
+function getWinnerSelection(score) {
+  const [home, away] = String(score || "").split("-").map(Number);
+  return home === away ? "draw" : home > away ? "home" : "away";
+}
+
+async function fetchTournamentChampion() {
+  const payload = await fetchWithRetry(`${ESPN_SCOREBOARD_URL}?limit=100&dates=20260718-20260719`);
+  const event = (payload.events || []).find((item) => /final/i.test(`${item.name || ""} ${item.shortName || ""}`));
+  const competition = event?.competitions?.[0];
+  if (!event || !(competition?.status?.type || event.status?.type || {}).completed) return null;
+  const winner = competition.competitors?.find((competitor) => competitor.winner === true || competitor.advance === true);
+  return winner?.team ? localizeTeamName(winner.team.displayName || winner.team.shortDisplayName) : null;
+}
+
 async function settlePendingBets(firestore) {
   const snapshot = await firestore.collection("bets").where("result", "==", "pending").get();
   const pending = snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
@@ -141,6 +166,10 @@ async function settlePendingBets(firestore) {
   } catch (error) {
     console.warn(`OpenLigaDB fallback unavailable: ${error.message}`);
   }
+  let champion = null;
+  if (pending.some((bet) => getBetType(bet) === "tournament_champion")) {
+    try { champion = await fetchTournamentChampion(); } catch (error) { console.warn(`Champion result unavailable: ${error.message}`); }
+  }
   const settled = pending
     .map((bet) => {
       const fallbackKey = [
@@ -150,22 +179,31 @@ async function settlePendingBets(firestore) {
       ].join("|");
       return {
         ...bet,
+        betType: getBetType(bet),
         predictedScore: getPredictedScore(bet),
         officialResult: espn.results.get(String(bet.matchId || "")) || fallbackResults.get(fallbackKey),
+        champion,
       };
     })
-    .filter((bet) => bet.predictedScore && bet.officialResult);
+    .filter((bet) => (bet.betType === "tournament_champion" && bet.champion) || (bet.betType !== "tournament_champion" && bet.officialResult));
 
   for (let offset = 0; offset < settled.length; offset += 200) {
     const batch = firestore.batch();
     settled.slice(offset, offset + 200).forEach((bet) => {
-      const { score: settledScore, provider } = bet.officialResult;
-      const result = bet.predictedScore === settledScore ? "win" : "loss";
+      const { score: settledScore, provider } = bet.officialResult || {};
+      const selection = String(bet.selection || bet.note || "").trim();
+      const result = bet.betType === "tournament_champion"
+        ? (selection === bet.champion ? "win" : "loss")
+        : bet.betType === "match_winner"
+          ? (selection === getWinnerSelection(settledScore) ? "win" : "loss")
+          : (bet.predictedScore === settledScore ? "win" : "loss");
+      const settlementFields = bet.betType === "tournament_champion"
+        ? { settledSelection: bet.champion, resultProvider: "ESPN" }
+        : { settledScore, resultProvider: provider };
       const auditRef = firestore.collection("auditLogs").doc();
       batch.update(firestore.collection("bets").doc(bet.id), {
         result,
-        settledScore,
-        resultProvider: provider,
+        ...settlementFields,
         settledAt: FieldValue.serverTimestamp(),
       });
       batch.set(auditRef, {
@@ -175,7 +213,7 @@ async function settlePendingBets(firestore) {
         actorName: "GitHub Actions",
         recordId: bet.id,
         occurredAt: FieldValue.serverTimestamp(),
-        details: { result, settledScore, provider },
+        details: { result, ...(bet.betType === "tournament_champion" ? { settledSelection: bet.champion, provider: "ESPN" } : { settledScore, provider }) },
       });
     });
     await batch.commit();

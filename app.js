@@ -31,10 +31,18 @@ const filterResult = document.getElementById("filterResult");
 const searchInput = document.getElementById("searchInput");
 const exportBtn = document.getElementById("exportBtn");
 const refreshMatchesBtn = document.getElementById("refreshMatchesBtn");
+const betTypeInput = document.getElementById("betTypeInput");
+const fixtureField = document.getElementById("fixtureField");
 const scoreFields = document.getElementById("scoreFields");
 const scoreHint = document.getElementById("scoreHint");
 const homeScoreLabel = document.getElementById("homeScoreLabel");
 const awayScoreLabel = document.getElementById("awayScoreLabel");
+const winnerFields = document.getElementById("winnerFields");
+const winnerHint = document.getElementById("winnerHint");
+const winnerSelectionInput = document.getElementById("winnerSelectionInput");
+const championFields = document.getElementById("championFields");
+const championSelectionInput = document.getElementById("championSelectionInput");
+const worldCupTeams = document.getElementById("worldCupTeams");
 const memberInput = document.getElementById("memberInput");
 const matchDateInput = document.getElementById("matchDateInput");
 const recordsToggleSummary = document.getElementById("recordsToggleSummary");
@@ -60,6 +68,11 @@ const adminCorrectionForm = document.getElementById("adminCorrectionForm");
 const adminRecordSelect = document.getElementById("adminRecordSelect");
 const adminHomeScoreInput = document.getElementById("adminHomeScoreInput");
 const adminAwayScoreInput = document.getElementById("adminAwayScoreInput");
+const adminSelectionField = document.getElementById("adminSelectionField");
+const adminSelectionLabel = document.getElementById("adminSelectionLabel");
+const adminSelectionInput = document.getElementById("adminSelectionInput");
+const adminHomeScoreField = document.getElementById("adminHomeScoreField");
+const adminAwayScoreField = document.getElementById("adminAwayScoreField");
 const adminOddsInput = document.getElementById("adminOddsInput");
 const adminAmountInput = document.getElementById("adminAmountInput");
 const adminCorrectionBtn = document.getElementById("adminCorrectionBtn");
@@ -79,6 +92,7 @@ const teamGuideBracket = document.getElementById("teamGuideBracket");
 const teamGuideSummary = document.getElementById("teamGuideSummary");
 const teamGuideRanking = document.getElementById("teamGuideRanking");
 const submitButton = form.querySelector('[type="submit"]');
+const filterBetType = document.getElementById("filterBetType");
 const menuToggle = document.getElementById("menuToggle");
 const currentPageLabel = document.getElementById("currentPageLabel");
 const pageMenu = document.getElementById("pageMenu");
@@ -116,6 +130,15 @@ let activeSubmissionId = createId();
 let teamGuideEvents = [];
 let teamGuideLoadedAt = null;
 let teamGuideLoading = false;
+
+const BET_TYPES = Object.freeze({
+  correct_score: "正確比分",
+  match_winner: "全場獨贏",
+  tournament_champion: "冠軍",
+});
+const TOURNAMENT_CHAMPION_MATCH_ID = "tournament:2026-fifa-world-cup";
+const TOURNAMENT_CHAMPION_MATCH = "2026 FIFA 世界盃冠軍";
+const TOURNAMENT_FINAL_DATE = "2026-07-19";
 
 const LEGACY_CREATED_DATE = "2026-07-02";
 const LEGACY_FIXTURES = [
@@ -204,8 +227,8 @@ function isLikelyDuplicateBet(candidate, existing) {
   return existing.id !== candidate.id
     && existing.memberUid === candidate.memberUid
     && String(existing.matchId || "") === String(candidate.matchId || "")
-    && Number(existing.predictedHome) === Number(candidate.predictedHome)
-    && Number(existing.predictedAway) === Number(candidate.predictedAway)
+    && getBetType(existing) === getBetType(candidate)
+    && getRecordSelection(existing) === getRecordSelection(candidate)
     && roundMoney(existing.amount) === roundMoney(candidate.amount)
     && Number(existing.odds) === Number(candidate.odds);
 }
@@ -277,6 +300,24 @@ async function deleteRecord(recordId) {
 
 function getResultLabel(result) {
   return { win: "贏", loss: "輸", pending: "未開獎" }[result] || "未開獎";
+}
+
+function getBetType(record) {
+  return BET_TYPES[record?.betType] ? record.betType : "correct_score";
+}
+
+function getBetTypeLabel(record) {
+  return BET_TYPES[getBetType(record)];
+}
+
+function getRecordSelection(record) {
+  const type = getBetType(record);
+  if (type === "correct_score") return normalizeScore(record.note);
+  return String(record.selection || record.note || "未填寫").trim();
+}
+
+function getWinnerSelectionLabel(match, selection) {
+  return { home: match?.homeName || "主隊", draw: "和局", away: match?.awayName || "客隊" }[selection] || selection;
 }
 
 function roundMoney(value) {
@@ -1080,8 +1121,43 @@ function updateMatchMode() {
   const hasMatch = Boolean(selectedMatch);
   homeScoreLabel.textContent = selectedMatch?.homeName || "A 隊";
   awayScoreLabel.textContent = selectedMatch?.awayName || "B 隊";
-  scoreFields.disabled = !hasMatch;
+  scoreFields.disabled = !hasMatch || getBetType({ betType: betTypeInput.value }) !== "correct_score";
   scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（正規時間）` : "請先選擇賽事，系統會帶入兩隊名稱。";
+  updateBetTypeMode();
+}
+
+function populateChampionTeams() {
+  const teams = Array.from(new Set(Object.values(COUNTRY_NAMES_ZH))).sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  worldCupTeams.innerHTML = teams.map((team) => `<option value="${escapeHtml(team)}"></option>`).join("");
+}
+
+function updateBetTypeMode() {
+  const type = betTypeInput.value;
+  const selectedMatch = availableMatches.find((match) => match.id === matchIdInput.value);
+  const hasMatch = Boolean(selectedMatch);
+  const isChampion = type === "tournament_champion";
+  const isWinner = type === "match_winner";
+  fixtureField.hidden = isChampion;
+  matchDateInput.closest("label").hidden = isChampion;
+  matchInput.required = !isChampion;
+  matchDateInput.required = !isChampion;
+  scoreFields.hidden = type !== "correct_score";
+  scoreFields.disabled = type !== "correct_score" || !hasMatch;
+  document.getElementById("homeScoreInput").required = type === "correct_score";
+  document.getElementById("awayScoreInput").required = type === "correct_score";
+  winnerFields.hidden = !isWinner;
+  winnerFields.disabled = !isWinner || !hasMatch;
+  winnerSelectionInput.required = isWinner;
+  championFields.hidden = !isChampion;
+  championFields.disabled = !isChampion;
+  championSelectionInput.required = isChampion;
+
+  if (isWinner) {
+    winnerSelectionInput.innerHTML = hasMatch
+      ? `<option value="">選擇獨贏</option><option value="home">${escapeHtml(selectedMatch.homeName)}</option><option value="draw">和局</option><option value="away">${escapeHtml(selectedMatch.awayName)}</option>`
+      : '<option value="">請先選擇賽事</option>';
+    winnerHint.textContent = hasMatch ? "全場獨贏以正規時間勝平負判定，不含延長賽與 PK。" : "請先選擇賽事。";
+  }
 }
 
 async function fetchWorldCupMatches(dateValue) {
@@ -1166,10 +1242,13 @@ async function refreshWorldCupData({ saveAfterUpdate = true } = {}) {
     const settlementMatches = mergeMatches(availableMatches, pendingMatches);
     const aligned = reconcileRecordsWithMatches(settlementMatches);
     const settled = applyMatchResultsToRecords(settlementMatches);
+    let championSettled = [];
+    try { championSettled = await settleTournamentChampionBets(); } catch (error) { console.error("無法同步冠軍結果：", error); }
     render();
     if (saveAfterUpdate) {
       if (aligned.length) await saveRecords(aligned, "schedule_sync");
       if (settled.length) await saveRecords(settled, "foreground_settle");
+      if (championSettled.length) await saveRecords(championSettled, "foreground_settle");
     }
     syncHint.textContent = aligned.length
       ? "已更新賽程，並自動對齊舊紀錄的場次、名稱與日期。"
@@ -1190,13 +1269,18 @@ function applyMatchResultsToRecords(matches) {
   const changedRecords = [];
 
   records = records.map((record) => {
+    const betType = getBetType(record);
     const match = resultsById.get(String(record.matchId || ""));
     const predictedScore = Number.isInteger(record.predictedHome) && Number.isInteger(record.predictedAway)
       ? `${record.predictedHome}-${record.predictedAway}`
       : parseScore(record.note);
-    if (!match || !predictedScore || record.result !== "pending") return record;
+    if (!match || record.result !== "pending" || !["correct_score", "match_winner"].includes(betType)) return record;
 
-    const result = predictedScore === match.regulationScore ? "win" : "loss";
+    const [homeScore, awayScore] = match.regulationScore.split("-").map(Number);
+    const winner = homeScore === awayScore ? "draw" : homeScore > awayScore ? "home" : "away";
+    const result = betType === "correct_score"
+      ? (predictedScore === match.regulationScore ? "win" : "loss")
+      : (record.selection === winner ? "win" : "loss");
     const settledRecord = {
       ...record,
       result,
@@ -1209,6 +1293,37 @@ function applyMatchResultsToRecords(matches) {
   });
 
   return changedRecords;
+}
+
+async function fetchTournamentChampion() {
+  const response = await fetch(`${ESPN_SCOREBOARD_URL}?limit=100&dates=20260718-20260719`);
+  if (!response.ok) throw new Error(`冠軍賽 API 回應 ${response.status}`);
+  const event = (await response.json()).events?.find((item) => /final/i.test(`${item.name || ""} ${item.shortName || ""}`));
+  const competition = event?.competitions?.[0];
+  const status = competition?.status?.type || event?.status?.type || {};
+  if (!event || !status.completed) return null;
+  const winner = competition.competitors?.find((competitor) => competitor.winner === true || competitor.advance === true);
+  return winner?.team ? localizeCountryName(winner.team.displayName || winner.team.shortDisplayName) : null;
+}
+
+async function settleTournamentChampionBets() {
+  if (!records.some((record) => record.result === "pending" && getBetType(record) === "tournament_champion")) return [];
+  const champion = await fetchTournamentChampion();
+  if (!champion) return [];
+  const changed = [];
+  records = records.map((record) => {
+    if (record.result !== "pending" || getBetType(record) !== "tournament_champion") return record;
+    const settled = {
+      ...record,
+      result: getRecordSelection(record) === champion ? "win" : "loss",
+      settledSelection: champion,
+      resultProvider: "ESPN",
+      settledAt: new Date().toISOString(),
+    };
+    changed.push(settled);
+    return settled;
+  });
+  return changed;
 }
 
 function buildPieSlices(items) {
@@ -1467,7 +1582,7 @@ function populateAnalysisFilters() {
 }
 
 function getAnalysisRecords() {
-  return records.filter((item) =>
+  return records.filter((item) => getBetType(item) === "correct_score" &&
     (analysisDateFilter.value === "all" || item.matchDate === analysisDateFilter.value) &&
     (analysisMatchFilter.value === "all" || getRecordMatchKey(item) === analysisMatchFilter.value)
   );
@@ -1654,7 +1769,7 @@ function populateAdminRecordSelect() {
     .slice()
     .sort((a, b) => String(b.createdAt || b.createdDate).localeCompare(String(a.createdAt || a.createdDate)))
     .map((record) => `<option value="${escapeHtml(record.id)}">${escapeHtml(
-      `${record.createdDate || "日期未填"} · ${record.member} · ${record.match} · ${record.note}`
+      `${record.createdDate || "日期未填"} · ${record.member} · ${getBetTypeLabel(record)} · ${record.match} · ${getRecordSelection(record)}`
     )}</option>`)
     .join("");
   adminRecordSelect.innerHTML = '<option value="">選擇要修正的投注</option>' + options;
@@ -1710,8 +1825,8 @@ function getCombinedPersonalRecords() {
         id: `current:${record.id}`,
         sourceGroup: "current",
         sourceLabel: "目前網站",
-        betType: "correct_score",
-        selection: normalizeScore(record.note),
+        betType: getBetType(record),
+        selection: getRecordSelection(record),
         actualScore: record.settledScore || "",
         payout,
         netAmount: settled ? roundMoney(payout - Number(record.amount || 0)) : 0,
@@ -1735,10 +1850,11 @@ function getPersonalHistoryStats(items) {
     }
     if (item.betType === "correct_score") stats.correctScoreCount += 1;
     if (item.betType === "match_winner") stats.matchWinnerCount += 1;
+    if (item.betType === "tournament_champion") stats.championCount += 1;
     return stats;
   }, {
     count: 0, totalAmount: 0, settledCount: 0, pendingCount: 0,
-    payout: 0, netAmount: 0, winCount: 0, correctScoreCount: 0, matchWinnerCount: 0,
+    payout: 0, netAmount: 0, winCount: 0, correctScoreCount: 0, matchWinnerCount: 0, championCount: 0,
   });
 }
 
@@ -1797,6 +1913,7 @@ function renderPersonalHistory() {
   personalPerformanceBreakdown.innerHTML = [
     getPersonalBreakdownRow("正確比分", items.filter((item) => item.betType === "correct_score")),
     getPersonalBreakdownRow("全場獨贏", items.filter((item) => item.betType === "match_winner")),
+    getPersonalBreakdownRow("冠軍", items.filter((item) => item.betType === "tournament_champion")),
   ].join("");
 
   const dates = items.map((item) => item.matchDate).filter(Boolean).sort();
@@ -1809,7 +1926,7 @@ function renderPersonalHistory() {
           <td>${escapeHtml(item.sourceLabel)}</td>
           <td>${escapeHtml(item.matchDate || "—")}</td>
           <td>${escapeHtml(item.match || "—")}</td>
-          <td>${item.betType === "match_winner" ? "全場獨贏" : "正確比分"}</td>
+          <td>${getBetTypeLabel(item)}</td>
           <td>${escapeHtml(item.selection || item.note || "—")}</td>
           <td>${Number(item.odds || 0).toFixed(2)}</td>
           <td>${formatCurrency(item.amount)}</td>
@@ -1824,6 +1941,7 @@ function renderRecords() {
   const searchText = searchInput.value.trim().toLowerCase();
   const memberValue = filterMember.value;
   const resultValue = filterResult.value;
+  const betTypeValue = filterBetType.value;
 
   const filtered = records
     .filter((item) => {
@@ -1832,7 +1950,8 @@ function renderRecords() {
       return (
         (member.toLowerCase().includes(searchText) || match.toLowerCase().includes(searchText)) &&
         (memberValue === "all" || member === memberValue) &&
-        (resultValue === "all" || item.result === resultValue)
+        (resultValue === "all" || item.result === resultValue) &&
+        (betTypeValue === "all" || getBetType(item) === betTypeValue)
       );
     })
     .sort((a, b) => String(b.createdAt || b.createdDate).localeCompare(String(a.createdAt || a.createdDate)));
@@ -1850,7 +1969,7 @@ function renderRecords() {
         <tr>
           <td>${escapeHtml(item.member)}</td>
           <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
-          <td>${escapeHtml(item.note || "—")}</td>
+          <td>${escapeHtml(`${getBetTypeLabel(item)} · ${getRecordSelection(item)}`)}</td>
           <td>${escapeHtml(item.match)}</td>
           <td>${Number(item.odds || 0).toFixed(2)}</td>
           <td>${formatCurrency(item.amount)}</td>
@@ -2006,11 +2125,14 @@ function startFirestoreSync() {
           }
           const aligned = reconcileRecordsWithMatches(settlementMatches);
           const settled = applyMatchResultsToRecords(settlementMatches);
+          let championSettled = [];
+          try { championSettled = await settleTournamentChampionBets(); } catch (error) { console.error("無法同步冠軍結果：", error); }
           localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
           render();
           if (migrated.length) await saveRecords(migrated, "legacy_migration");
           if (aligned.length) await saveRecords(aligned, "schedule_sync");
           if (settled.length) await saveRecords(settled, "foreground_settle");
+          if (championSettled.length) await saveRecords(championSettled, "foreground_settle");
         }
       },
       (error) => {
@@ -2027,9 +2149,19 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   const formData = new FormData(form);
+  const betType = formData.get("betType") || "correct_score";
   const matchedFixture = availableMatches.find((match) => match.id === String(formData.get("matchId") || ""));
-  if (!matchedFixture) {
+  if (betType !== "tournament_champion" && !matchedFixture) {
     window.alert("請從賽程清單選擇有效場次；若清單尚未載入，請先更新賽程。");
+    return;
+  }
+  const selection = betType === "correct_score"
+    ? `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`
+    : betType === "match_winner"
+      ? formData.get("selection")
+      : String(formData.get("championSelection") || "").trim();
+  if (!selection || (betType === "tournament_champion" && !selection)) {
+    window.alert("請完成這個玩法的下注選擇。");
     return;
   }
   const createdAt = new Date();
@@ -2041,18 +2173,23 @@ form.addEventListener("submit", async (event) => {
     memberEmail: auth.currentUser.email || "",
     createdAt: createdAt.toISOString(),
     createdDate: toLocalDateValue(createdAt),
-    matchDate: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
-    date: matchedFixture?.date || matchDateInput.value || toLocalDateValue(createdAt),
-    match: matchedFixture.label,
-    matchId: matchedFixture.id,
-    homeCode: matchedFixture.homeCode,
-    awayCode: matchedFixture.awayCode,
+    betType,
+    settlementRule: betType === "correct_score" ? "regulation_score" : betType === "match_winner" ? "regulation_winner" : "tournament_champion",
+    matchDate: matchedFixture?.date || (betType === "tournament_champion" ? TOURNAMENT_FINAL_DATE : matchDateInput.value),
+    date: matchedFixture?.date || (betType === "tournament_champion" ? TOURNAMENT_FINAL_DATE : matchDateInput.value),
+    match: matchedFixture?.label || TOURNAMENT_CHAMPION_MATCH,
+    matchId: matchedFixture?.id || TOURNAMENT_CHAMPION_MATCH_ID,
+    homeCode: matchedFixture?.homeCode || "",
+    awayCode: matchedFixture?.awayCode || "",
     amount: Number(formData.get("amount")),
     odds: Number(formData.get("odds")),
     result: "pending",
-    predictedHome: Number(formData.get("homeScore")),
-    predictedAway: Number(formData.get("awayScore")),
-    note: `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`,
+    selection,
+    note: betType === "match_winner" ? getWinnerSelectionLabel(matchedFixture, selection) : selection,
+    ...(betType === "correct_score" ? {
+      predictedHome: Number(formData.get("homeScore")),
+      predictedAway: Number(formData.get("awayScore")),
+    } : {}),
   };
 
   if (!entry.member || !entry.match) {
@@ -2061,7 +2198,7 @@ form.addEventListener("submit", async (event) => {
   }
   const duplicate = records.find((record) => isLikelyDuplicateBet(entry, record));
   if (duplicate && !window.confirm(
-    `這筆投注與既有紀錄完全相同：\n${duplicate.member} · ${duplicate.match} · ${duplicate.note} · 賠率 ${Number(duplicate.odds).toFixed(2)} · ${formatCurrency(duplicate.amount)}\n\n仍要新增嗎？`
+    `這筆投注與既有紀錄完全相同：\n${duplicate.member} · ${getBetTypeLabel(duplicate)} · ${duplicate.match} · ${getRecordSelection(duplicate)} · 賠率 ${Number(duplicate.odds).toFixed(2)} · ${formatCurrency(duplicate.amount)}\n\n仍要新增嗎？`
   )) return;
 
   submitButton.disabled = true;
@@ -2104,7 +2241,7 @@ exportBtn.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-[searchInput, filterMember, filterResult].forEach((element) => {
+[searchInput, filterMember, filterResult, filterBetType].forEach((element) => {
   element.addEventListener("input", renderRecords);
   element.addEventListener("change", renderRecords);
 });
@@ -2254,14 +2391,24 @@ document.addEventListener("click", (event) => {
 });
 
 matchInput.addEventListener("change", updateMatchMode);
+betTypeInput.addEventListener("change", updateBetTypeMode);
 matchDateInput.addEventListener("change", () => refreshWorldCupData({ saveAfterUpdate: false }));
 refreshMatchesBtn.addEventListener("click", () => refreshWorldCupData());
 refreshTeamGuideBtn.addEventListener("click", refreshTeamGuide);
 
 adminRecordSelect.addEventListener("change", () => {
   const record = records.find((item) => item.id === adminRecordSelect.value);
-  adminHomeScoreInput.value = record?.predictedHome ?? "";
-  adminAwayScoreInput.value = record?.predictedAway ?? "";
+  const isScore = getBetType(record) === "correct_score";
+  adminSelectionField.hidden = isScore;
+  adminHomeScoreField.hidden = !isScore;
+  adminAwayScoreField.hidden = !isScore;
+  adminSelectionInput.required = !isScore;
+  adminHomeScoreInput.required = isScore;
+  adminAwayScoreInput.required = isScore;
+  adminSelectionLabel.textContent = getBetType(record) === "tournament_champion" ? "冠軍隊伍" : "獨贏選擇";
+  adminSelectionInput.value = isScore ? "" : getRecordSelection(record);
+  adminHomeScoreInput.value = isScore ? record?.predictedHome ?? "" : "";
+  adminAwayScoreInput.value = isScore ? record?.predictedAway ?? "" : "";
   adminOddsInput.value = record?.odds ?? "";
   adminAmountInput.value = record?.amount ?? "";
 });
@@ -2289,17 +2436,22 @@ adminCorrectionForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  const isScore = getBetType(original) === "correct_score";
   const nextValues = {
-    predictedHome: Number(adminHomeScoreInput.value),
-    predictedAway: Number(adminAwayScoreInput.value),
     odds: Number(adminOddsInput.value),
     amount: Number(adminAmountInput.value),
+    ...(isScore ? {
+      predictedHome: Number(adminHomeScoreInput.value),
+      predictedAway: Number(adminAwayScoreInput.value),
+    } : { selection: adminSelectionInput.value.trim() }),
   };
-  if (!Object.values(nextValues).every(Number.isFinite)) {
-    window.alert("請確認比分、賠率與金額格式。");
+  if (!Number.isFinite(nextValues.odds) || !Number.isFinite(nextValues.amount)
+    || (isScore && (!Number.isFinite(nextValues.predictedHome) || !Number.isFinite(nextValues.predictedAway)))
+    || (!isScore && !nextValues.selection)) {
+    window.alert("請確認選擇、賠率與金額格式。");
     return;
   }
-  if (!window.confirm(`確定修正 ${original.member} 的「${original.match} ${original.note}」嗎？`)) return;
+  if (!window.confirm(`確定修正 ${original.member} 的「${original.match} ${getRecordSelection(original)}」嗎？`)) return;
 
   const baseRecord = { ...original };
   delete baseRecord.settledScore;
@@ -2308,7 +2460,7 @@ adminCorrectionForm.addEventListener("submit", async (event) => {
   const corrected = {
     ...baseRecord,
     ...nextValues,
-    note: `${nextValues.predictedHome}-${nextValues.predictedAway}`,
+    note: isScore ? `${nextValues.predictedHome}-${nextValues.predictedAway}` : nextValues.selection,
     result: "pending",
     correctedAt: new Date().toISOString(),
     correctedByUid: auth.currentUser.uid,
@@ -2317,8 +2469,8 @@ adminCorrectionForm.addEventListener("submit", async (event) => {
   adminCorrectionBtn.disabled = true;
   try {
     const saved = await saveRecords([corrected], "admin_correction", {
-      before: `${original.note}|${original.odds}|${original.amount}`,
-      after: `${corrected.note}|${corrected.odds}|${corrected.amount}`,
+      before: `${getRecordSelection(original)}|${original.odds}|${original.amount}`,
+      after: `${getRecordSelection(corrected)}|${corrected.odds}|${corrected.amount}`,
     });
     if (!saved) return;
     const matches = await fetchMatchesForDates([corrected.matchDate || corrected.date]);
@@ -2384,7 +2536,9 @@ if (auth) {
   updateAuthUI(null);
 }
 
+populateChampionTeams();
 matchDateInput.value = toLocalDateValue();
+updateBetTypeMode();
 setActivePage(location.hash.replace("#", ""), { updateHash: false });
 refreshWorldCupData();
 window.setInterval(() => {
