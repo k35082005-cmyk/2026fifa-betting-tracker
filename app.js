@@ -320,6 +320,28 @@ function getWinnerSelectionLabel(match, selection) {
   return { home: match?.homeName || "主隊", draw: "和局", away: match?.awayName || "客隊" }[selection] || selection;
 }
 
+function getMatchSideName(record, side) {
+  const [homeName, awayName] = String(record?.match || "").split(/\s*VS\s*/i).map((name) => name.trim());
+  return side === "home" ? homeName : awayName;
+}
+
+function getRecordCompactSelectionLabel(record) {
+  const type = getBetType(record);
+  const selection = getRecordSelection(record);
+  if (type === "correct_score") return selection;
+  if (type === "match_winner") {
+    const rawSelection = String(record.selection || "").trim();
+    let winner = selection;
+    if (rawSelection === "home" || rawSelection === "away") {
+      winner = getMatchSideName(record, rawSelection) || selection;
+    }
+    if (rawSelection === "draw") winner = "和局";
+    return winner === "和局" ? winner : `${winner}獨贏`;
+  }
+  if (type === "tournament_champion") return `${selection}冠軍`;
+  return `${getBetTypeLabel(record)} · ${selection}`;
+}
+
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
@@ -1969,7 +1991,7 @@ function renderRecords() {
         <tr>
           <td>${escapeHtml(item.member)}</td>
           <td><span class="badge ${escapeHtml(item.result)}">${getResultLabel(item.result)}</span></td>
-          <td>${escapeHtml(`${getBetTypeLabel(item)} · ${getRecordSelection(item)}`)}</td>
+          <td>${escapeHtml(getRecordCompactSelectionLabel(item))}</td>
           <td>${escapeHtml(item.match)}</td>
           <td>${Number(item.odds || 0).toFixed(2)}</td>
           <td>${formatCurrency(item.amount)}</td>
