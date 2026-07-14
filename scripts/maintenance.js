@@ -64,6 +64,26 @@ function calculateRegulationScore(event) {
   return `${score.home}-${score.away}`;
 }
 
+function calculateHalfTimeScore(event) {
+  const competition = event.competitions?.[0];
+  const home = getCompetitor(competition, "home");
+  const away = getCompetitor(competition, "away");
+  const status = competition?.status?.type || event.status?.type || {};
+  if (!status.completed || !home || !away || !Array.isArray(competition?.details)) return null;
+
+  const teamIds = { home: String(home.team?.id || home.id), away: String(away.team?.id || away.id) };
+  const score = { home: 0, away: 0 };
+  competition.details.forEach((detail) => {
+    const isFirstHalfGoal = detail.scoringPlay && !detail.shootout
+      && Number(detail.scoreValue || 0) > 0 && Number(detail.clock?.value || 0) <= 2700;
+    if (!isFirstHalfGoal) return;
+    const teamId = String(detail.team?.id || "");
+    if (teamId === teamIds.home) score.home += Number(detail.scoreValue || 0);
+    if (teamId === teamIds.away) score.away += Number(detail.scoreValue || 0);
+  });
+  return `${score.home}-${score.away}`;
+}
+
 function normalizeTeamCode(code) {
   const normalized = String(code || "").trim().toUpperCase();
   return TEAM_CODE_ALIASES[normalized] || normalized;
@@ -98,7 +118,7 @@ async function fetchEspnResultsForDates(dateValues) {
       const payload = await fetchWithRetry(`${ESPN_SCOREBOARD_URL}?limit=100&dates=${getEspnRange(dateValue)}`);
       (payload.events || []).forEach((event) => {
         const score = calculateRegulationScore(event);
-        if (score) results.set(String(event.id), { score, provider: "ESPN" });
+        if (score) results.set(String(event.id), { score, halfTimeScore: calculateHalfTimeScore(event), provider: "ESPN" });
       });
     } catch (error) {
       failures.push(`${dateValue}: ${error.message}`);
@@ -135,7 +155,7 @@ function getPredictedScore(bet) {
 }
 
 function getBetType(bet) {
-  return ["correct_score", "match_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+  return ["correct_score", "half_time_correct_score", "match_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
 }
 
 function localizeTeamName(name) {
@@ -185,12 +205,15 @@ async function settlePendingBets(firestore) {
         champion,
       };
     })
-    .filter((bet) => (bet.betType === "tournament_champion" && bet.champion) || (bet.betType !== "tournament_champion" && bet.officialResult));
+    .filter((bet) => (bet.betType === "tournament_champion" && bet.champion)
+      || (bet.betType === "half_time_correct_score" && bet.officialResult?.halfTimeScore)
+      || (!["tournament_champion", "half_time_correct_score"].includes(bet.betType) && bet.officialResult));
 
   for (let offset = 0; offset < settled.length; offset += 200) {
     const batch = firestore.batch();
     settled.slice(offset, offset + 200).forEach((bet) => {
-      const { score: settledScore, provider } = bet.officialResult || {};
+      const { score: regulationScore, halfTimeScore, provider } = bet.officialResult || {};
+      const settledScore = bet.betType === "half_time_correct_score" ? halfTimeScore : regulationScore;
       const selection = String(bet.selection || bet.note || "").trim();
       const result = bet.betType === "tournament_champion"
         ? (selection === bet.champion ? "win" : "loss")
@@ -282,4 +305,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { calculateRegulationScore, fetchOpenLigaResults, getPredictedScore, normalizeTeamCode };
+module.exports = { calculateRegulationScore, calculateHalfTimeScore, fetchOpenLigaResults, getPredictedScore, normalizeTeamCode };
