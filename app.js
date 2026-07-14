@@ -24,6 +24,7 @@ const matchIdInput = document.getElementById("matchIdInput");
 const recordsBody = document.getElementById("recordsBody");
 const summaryStats = document.getElementById("summaryStats");
 const matchBreakdown = document.getElementById("matchBreakdown");
+const halfTimeMatchBreakdown = document.getElementById("halfTimeMatchBreakdown");
 const memberStats = document.getElementById("memberStats");
 const overallMemberStats = document.getElementById("overallMemberStats");
 const filterMember = document.getElementById("filterMember");
@@ -1414,13 +1415,13 @@ function getPieChartMarkup(items) {
   `;
 }
 
-function renderMatchBreakdown(matchItems) {
+function renderMatchBreakdown(matchItems, container, emptyMessage) {
   if (!matchItems.length) {
-    matchBreakdown.innerHTML = '<p class="empty">還沒有可分析的下注資料</p>';
+    container.innerHTML = `<p class="empty">${escapeHtml(emptyMessage)}</p>`;
     return;
   }
 
-  matchBreakdown.innerHTML = matchItems
+  container.innerHTML = matchItems
     .map((match) => {
       const scoreItems = getGroupedBetStats(match.records, (item) => normalizeScore(item.note)).sort(
         (a, b) => b.count - a.count || b.amount - a.amount
@@ -1472,14 +1473,14 @@ function renderMatchBreakdown(matchItems) {
     .join("");
 }
 
-function renderVisualStats(items) {
+function renderVisualStats(items, container, emptyMessage) {
   const byMatch = getGroupedBetStats(
     items,
     (item) => getRecordMatchKey(item)
   )
     .map((entry) => ({ ...entry, label: entry.records[0]?.match || "未填寫" }))
     .sort((a, b) => String(b.records[0]?.matchDate).localeCompare(String(a.records[0]?.matchDate)) || b.count - a.count);
-  renderMatchBreakdown(byMatch);
+  renderMatchBreakdown(byMatch, container, emptyMessage);
 }
 
 function renderSummary() {
@@ -1631,11 +1632,19 @@ function populateAnalysisFilters() {
   analysisMatchFilter.value = matches.some(([key]) => key === currentMatch) ? currentMatch : "all";
 }
 
-function getAnalysisRecords() {
-  return records.filter((item) => getBetType(item) === "correct_score" &&
+function getScoreAnalysisRecords(betType) {
+  return records.filter((item) => getBetType(item) === betType &&
     (analysisDateFilter.value === "all" || item.matchDate === analysisDateFilter.value) &&
     (analysisMatchFilter.value === "all" || getRecordMatchKey(item) === analysisMatchFilter.value)
   );
+}
+
+function getAnalysisRecords() {
+  return getScoreAnalysisRecords("correct_score");
+}
+
+function getHalfTimeAnalysisRecords() {
+  return getScoreAnalysisRecords("half_time_correct_score");
 }
 
 function populateStatsFilters() {
@@ -2050,8 +2059,10 @@ function render() {
   populateAnalysisFilters();
   populateStatsFilters();
   const analysisRecords = getAnalysisRecords();
+  const halfTimeAnalysisRecords = getHalfTimeAnalysisRecords();
   const statsRecords = getStatsRecords();
-  renderVisualStats(analysisRecords);
+  renderVisualStats(analysisRecords, matchBreakdown, "還沒有可分析的全場波膽資料");
+  renderVisualStats(halfTimeAnalysisRecords, halfTimeMatchBreakdown, "還沒有可分析的上半場波膽資料");
   renderStatsPanels(statsRecords);
   renderFilteredSummary(statsRecords);
   renderSettlementPage();
@@ -2301,7 +2312,9 @@ exportBtn.addEventListener("click", () => {
 [analysisDateFilter, analysisMatchFilter].forEach((element) => {
   element.addEventListener("change", () => {
     const analysisRecords = getAnalysisRecords();
-    renderVisualStats(analysisRecords);
+    const halfTimeAnalysisRecords = getHalfTimeAnalysisRecords();
+    renderVisualStats(analysisRecords, matchBreakdown, "還沒有可分析的全場波膽資料");
+    renderVisualStats(halfTimeAnalysisRecords, halfTimeMatchBreakdown, "還沒有可分析的上半場波膽資料");
   });
 });
 

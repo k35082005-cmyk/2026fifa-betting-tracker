@@ -203,8 +203,15 @@
           <label><span>比賽日期</span><select id="analysisDateFilter"><option value="all">所有比賽日期</option></select></label>
           <label><span>場次</span><select id="analysisMatchFilter"><option value="all">所有場次</option></select></label>
         </div>
-        <p class="section-description">每一場賽事獨立統計正確比分；獨贏與冠軍單會納入總覽、分類統計與款項結算。</p>
-        <div class="match-breakdown" id="matchBreakdown"></div>
+        <p class="section-description">每一場賽事獨立統計全場與上半場波膽；獨贏與冠軍單會納入總覽、分類統計與款項結算。</p>
+        <div class="analysis-subsection">
+          <h3>全場正確比分</h3>
+          <div class="match-breakdown" id="matchBreakdown"></div>
+        </div>
+        <div class="analysis-subsection">
+          <h3>上半場波膽</h3>
+          <div class="match-breakdown" id="halfTimeMatchBreakdown"></div>
+        </div>
       </section>
 
       <section class="card analysis-card" data-page="stats" hidden>

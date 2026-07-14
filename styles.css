@@ -1034,6 +1034,16 @@ td:last-child {
   margin-top: 30px;
 }
 
+.analysis-subsection + .analysis-subsection {
+  margin-top: 42px;
+}
+
+.analysis-subsection > h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 .match-card {
   border-top: 1px solid var(--ink);
   padding: 24px 0 8px;
