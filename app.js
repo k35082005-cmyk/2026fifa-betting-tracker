@@ -329,7 +329,8 @@ function getMatchSideName(record, side) {
 function getRecordCompactSelectionLabel(record) {
   const type = getBetType(record);
   const selection = getRecordSelection(record);
-  if (["correct_score", "half_time_correct_score"].includes(type)) return selection;
+  if (type === "correct_score") return selection;
+  if (type === "half_time_correct_score") return `${selection} · 半場波膽`;
   if (type === "match_winner") {
     const rawSelection = String(record.selection || "").trim();
     let winner = selection;
