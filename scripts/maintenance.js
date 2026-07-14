@@ -155,7 +155,7 @@ function getPredictedScore(bet) {
 }
 
 function getBetType(bet) {
-  return ["correct_score", "half_time_correct_score", "match_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
 }
 
 function localizeTeamName(name) {
@@ -206,18 +206,18 @@ async function settlePendingBets(firestore) {
       };
     })
     .filter((bet) => (bet.betType === "tournament_champion" && bet.champion)
-      || (bet.betType === "half_time_correct_score" && bet.officialResult?.halfTimeScore)
-      || (!["tournament_champion", "half_time_correct_score"].includes(bet.betType) && bet.officialResult));
+      || (["half_time_correct_score", "half_time_winner"].includes(bet.betType) && bet.officialResult?.halfTimeScore)
+      || (!["tournament_champion", "half_time_correct_score", "half_time_winner"].includes(bet.betType) && bet.officialResult));
 
   for (let offset = 0; offset < settled.length; offset += 200) {
     const batch = firestore.batch();
     settled.slice(offset, offset + 200).forEach((bet) => {
       const { score: regulationScore, halfTimeScore, provider } = bet.officialResult || {};
-      const settledScore = bet.betType === "half_time_correct_score" ? halfTimeScore : regulationScore;
+      const settledScore = ["half_time_correct_score", "half_time_winner"].includes(bet.betType) ? halfTimeScore : regulationScore;
       const selection = String(bet.selection || bet.note || "").trim();
       const result = bet.betType === "tournament_champion"
         ? (selection === bet.champion ? "win" : "loss")
-        : bet.betType === "match_winner"
+        : ["match_winner", "half_time_winner"].includes(bet.betType)
           ? (selection === getWinnerSelection(settledScore) ? "win" : "loss")
           : (bet.predictedScore === settledScore ? "win" : "loss");
       const settlementFields = bet.betType === "tournament_champion"
