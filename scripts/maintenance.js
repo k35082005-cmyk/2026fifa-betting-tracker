@@ -155,7 +155,7 @@ function getPredictedScore(bet) {
 }
 
 function getBetType(bet) {
-  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "half_full_time", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
 }
 
 function localizeTeamName(name) {
@@ -164,6 +164,7 @@ function localizeTeamName(name) {
 
 function getWinnerSelection(score) {
   const [home, away] = String(score || "").split("-").map(Number);
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return "";
   return home === away ? "draw" : home > away ? "home" : "away";
 }
 
@@ -207,7 +208,8 @@ async function settlePendingBets(firestore) {
     })
     .filter((bet) => (bet.betType === "tournament_champion" && bet.champion)
       || (["half_time_correct_score", "half_time_winner"].includes(bet.betType) && bet.officialResult?.halfTimeScore)
-      || (!["tournament_champion", "half_time_correct_score", "half_time_winner"].includes(bet.betType) && bet.officialResult));
+      || (bet.betType === "half_full_time" && bet.officialResult?.halfTimeScore && bet.officialResult?.score)
+      || (!["tournament_champion", "half_time_correct_score", "half_time_winner", "half_full_time"].includes(bet.betType) && bet.officialResult));
 
   for (let offset = 0; offset < settled.length; offset += 200) {
     const batch = firestore.batch();
@@ -215,14 +217,18 @@ async function settlePendingBets(firestore) {
       const { score: regulationScore, halfTimeScore, provider } = bet.officialResult || {};
       const settledScore = ["half_time_correct_score", "half_time_winner"].includes(bet.betType) ? halfTimeScore : regulationScore;
       const selection = String(bet.selection || bet.note || "").trim();
+      const halfFullTimeSelection = `${getWinnerSelection(halfTimeScore)}/${getWinnerSelection(regulationScore)}`;
       const result = bet.betType === "tournament_champion"
         ? (selection === bet.champion ? "win" : "loss")
+        : bet.betType === "half_full_time"
+          ? (selection === halfFullTimeSelection ? "win" : "loss")
         : ["match_winner", "half_time_winner"].includes(bet.betType)
           ? (selection === getWinnerSelection(settledScore) ? "win" : "loss")
           : (bet.predictedScore === settledScore ? "win" : "loss");
+      const displaySettledScore = bet.betType === "half_full_time" ? `${halfTimeScore} / ${regulationScore}` : settledScore;
       const settlementFields = bet.betType === "tournament_champion"
         ? { settledSelection: bet.champion, resultProvider: "ESPN" }
-        : { settledScore, resultProvider: provider };
+        : { settledScore: displaySettledScore, resultProvider: provider };
       const auditRef = firestore.collection("auditLogs").doc();
       batch.update(firestore.collection("bets").doc(bet.id), {
         result,
@@ -236,7 +242,7 @@ async function settlePendingBets(firestore) {
         actorName: "GitHub Actions",
         recordId: bet.id,
         occurredAt: FieldValue.serverTimestamp(),
-        details: { result, ...(bet.betType === "tournament_champion" ? { settledSelection: bet.champion, provider: "ESPN" } : { settledScore, provider }) },
+        details: { result, ...(bet.betType === "tournament_champion" ? { settledSelection: bet.champion, provider: "ESPN" } : { settledScore: displaySettledScore, provider }) },
       });
     });
     await batch.commit();
