@@ -139,10 +139,12 @@ const BET_TYPES = Object.freeze({
   match_winner: "全場獨贏",
   half_time_winner: "上半場獨贏",
   half_full_time: "半/全場",
+  exact_goals: "準確進球數",
   tournament_champion: "冠軍",
 });
 const SCORE_BET_TYPES = Object.freeze(["correct_score", "half_time_correct_score"]);
 const WINNER_BET_TYPES = Object.freeze(["match_winner", "half_time_winner", "half_full_time"]);
+const TOTAL_GOALS_BET_TYPES = Object.freeze(["exact_goals"]);
 const TOURNAMENT_CHAMPION_MATCH_ID = "tournament:2026-fifa-world-cup";
 const TOURNAMENT_CHAMPION_MATCH = "2026 FIFA 世界盃冠軍";
 const TOURNAMENT_FINAL_DATE = "2026-07-19";
@@ -344,12 +346,19 @@ function getWinnerFromScore(score) {
   return homeScore === awayScore ? "draw" : homeScore > awayScore ? "home" : "away";
 }
 
+function getTotalGoalsFromScore(score) {
+  const [homeScore, awayScore] = String(score || "").split("-").map(Number);
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return "";
+  return String(homeScore + awayScore);
+}
+
 function getSettlementRule(betType) {
   if (betType === "correct_score") return "regulation_score";
   if (betType === "half_time_correct_score") return "half_time_score";
   if (betType === "match_winner") return "regulation_winner";
   if (betType === "half_time_winner") return "half_time_winner";
   if (betType === "half_full_time") return "half_full_time";
+  if (betType === "exact_goals") return "regulation_total_goals";
   return "tournament_champion";
 }
 
@@ -364,6 +373,7 @@ function getRecordCompactSelectionLabel(record) {
   if (type === "correct_score") return selection;
   if (type === "half_time_correct_score") return `${selection} · 半場波膽`;
   if (type === "half_full_time") return `${getHalfFullTimeSelectionLabel(record, selection)} · 半/全場`;
+  if (type === "exact_goals") return `${selection} 球 · 準確進球數`;
   if (["match_winner", "half_time_winner"].includes(type)) {
     const rawSelection = String(record.selection || "").trim();
     let winner = selection;
@@ -1217,6 +1227,7 @@ function updateBetTypeMode() {
   const hasMatch = Boolean(selectedMatch);
   const isChampion = type === "tournament_champion";
   const isWinner = WINNER_BET_TYPES.includes(type);
+  const isExactGoals = type === "exact_goals";
   const isScore = SCORE_BET_TYPES.includes(type);
   fixtureField.hidden = isChampion;
   matchDateInput.closest("label").hidden = isChampion;
@@ -1227,14 +1238,20 @@ function updateBetTypeMode() {
   document.getElementById("homeScoreInput").required = isScore;
   document.getElementById("awayScoreInput").required = isScore;
   scoreHint.textContent = hasMatch ? `${homeScoreLabel.textContent} 對 ${awayScoreLabel.textContent}（${type === "half_time_correct_score" ? "上半場" : "正規時間"}）` : "請先選擇賽事，系統會帶入兩隊名稱。";
-  winnerFields.hidden = !isWinner;
-  winnerFields.disabled = !isWinner || !hasMatch;
-  winnerSelectionInput.required = isWinner;
+  winnerFields.hidden = !isWinner && !isExactGoals;
+  winnerFields.disabled = (!isWinner && !isExactGoals) || !hasMatch;
+  winnerSelectionInput.required = isWinner || isExactGoals;
   championFields.hidden = !isChampion;
   championFields.disabled = !isChampion;
   championSelectionInput.required = isChampion;
 
-  if (isWinner) {
+  if (isExactGoals) {
+    winnerLegend.textContent = "準確進球數";
+    winnerSelectionInput.innerHTML = hasMatch
+      ? '<option value="">選擇正規時間總進球數</option>' + Array.from({ length: 11 }, (_, goals) => `<option value="${goals}">${goals} 球</option>`).join("")
+      : '<option value="">請先選擇賽事</option>';
+    winnerHint.textContent = hasMatch ? "準確進球數以正規時間兩隊總進球數判定，不含延長賽與 PK。" : "請先選擇賽事。";
+  } else if (isWinner) {
     const isHalfTimeWinner = type === "half_time_winner";
     const isHalfFullTime = type === "half_full_time";
     winnerLegend.textContent = isHalfFullTime ? "半/全場選擇" : isHalfTimeWinner ? "上半場獨贏選擇" : "全場獨贏選擇";
@@ -1373,22 +1390,25 @@ function applyMatchResultsToRecords(matches) {
     const predictedScore = Number.isInteger(record.predictedHome) && Number.isInteger(record.predictedAway)
       ? `${record.predictedHome}-${record.predictedAway}`
       : parseScore(record.note);
-    if (!match || record.result !== "pending" || ![...SCORE_BET_TYPES, ...WINNER_BET_TYPES].includes(betType)) return record;
+    if (!match || record.result !== "pending" || ![...SCORE_BET_TYPES, ...WINNER_BET_TYPES, ...TOTAL_GOALS_BET_TYPES].includes(betType)) return record;
 
     const settledScore = ["half_time_correct_score", "half_time_winner"].includes(betType) ? match.halfTimeScore : match.regulationScore;
     if (!settledScore) return record;
     if (betType === "half_full_time" && !match.halfTimeScore) return record;
     const winner = getWinnerFromScore(settledScore);
     const halfFullTimeSelection = `${getWinnerFromScore(match.halfTimeScore)}/${getWinnerFromScore(match.regulationScore)}`;
+    const totalGoals = getTotalGoalsFromScore(match.regulationScore);
     const result = SCORE_BET_TYPES.includes(betType)
       ? (predictedScore === settledScore ? "win" : "loss")
       : betType === "half_full_time"
         ? (record.selection === halfFullTimeSelection ? "win" : "loss")
+        : betType === "exact_goals"
+          ? (String(record.selection || record.note || "").trim() === totalGoals ? "win" : "loss")
         : (record.selection === winner ? "win" : "loss");
     const settledRecord = {
       ...record,
       result,
-      settledScore: betType === "half_full_time" ? `${match.halfTimeScore} / ${match.regulationScore}` : settledScore,
+      settledScore: betType === "half_full_time" ? `${match.halfTimeScore} / ${match.regulationScore}` : betType === "exact_goals" ? totalGoals : settledScore,
       resultProvider: match.provider || "ESPN",
       settledAt: new Date().toISOString(),
     };
@@ -1965,11 +1985,12 @@ function getPersonalHistoryStats(items) {
     if (item.betType === "match_winner") stats.matchWinnerCount += 1;
     if (item.betType === "half_time_winner") stats.halfTimeWinnerCount += 1;
     if (item.betType === "half_full_time") stats.halfFullTimeCount += 1;
+    if (item.betType === "exact_goals") stats.exactGoalsCount += 1;
     if (item.betType === "tournament_champion") stats.championCount += 1;
     return stats;
   }, {
     count: 0, totalAmount: 0, settledCount: 0, pendingCount: 0,
-    payout: 0, netAmount: 0, winCount: 0, correctScoreCount: 0, halfTimeCorrectScoreCount: 0, matchWinnerCount: 0, halfTimeWinnerCount: 0, halfFullTimeCount: 0, championCount: 0,
+    payout: 0, netAmount: 0, winCount: 0, correctScoreCount: 0, halfTimeCorrectScoreCount: 0, matchWinnerCount: 0, halfTimeWinnerCount: 0, halfFullTimeCount: 0, exactGoalsCount: 0, championCount: 0,
   });
 }
 
@@ -2031,6 +2052,7 @@ function renderPersonalHistory() {
     getPersonalBreakdownRow("全場獨贏", items.filter((item) => item.betType === "match_winner")),
     getPersonalBreakdownRow("上半場獨贏", items.filter((item) => item.betType === "half_time_winner")),
     getPersonalBreakdownRow("半/全場", items.filter((item) => item.betType === "half_full_time")),
+    getPersonalBreakdownRow("準確進球數", items.filter((item) => item.betType === "exact_goals")),
     getPersonalBreakdownRow("冠軍", items.filter((item) => item.betType === "tournament_champion")),
   ].join("");
 
@@ -2279,7 +2301,9 @@ form.addEventListener("submit", async (event) => {
     ? `${Number(formData.get("homeScore"))}-${Number(formData.get("awayScore"))}`
     : WINNER_BET_TYPES.includes(betType)
       ? formData.get("selection")
-      : String(formData.get("championSelection") || "").trim();
+      : betType === "exact_goals"
+        ? String(formData.get("selection") || "").trim()
+        : String(formData.get("championSelection") || "").trim();
   if (!selection || (betType === "tournament_champion" && !selection)) {
     window.alert("請完成這個玩法的下注選擇。");
     return;
@@ -2529,7 +2553,7 @@ adminRecordSelect.addEventListener("change", () => {
   adminAwayScoreInput.required = isScore;
   adminSelectionLabel.textContent = getBetType(record) === "tournament_champion"
     ? "冠軍隊伍"
-    : getBetType(record) === "half_full_time" ? "半/全場選擇" : getBetType(record) === "half_time_winner" ? "上半場獨贏選擇" : "全場獨贏選擇";
+    : getBetType(record) === "exact_goals" ? "準確進球數" : getBetType(record) === "half_full_time" ? "半/全場選擇" : getBetType(record) === "half_time_winner" ? "上半場獨贏選擇" : "全場獨贏選擇";
   adminSelectionInput.value = isScore ? "" : getRecordSelection(record);
   adminHomeScoreInput.value = isScore ? record?.predictedHome ?? "" : "";
   adminAwayScoreInput.value = isScore ? record?.predictedAway ?? "" : "";

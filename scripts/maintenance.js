@@ -155,7 +155,7 @@ function getPredictedScore(bet) {
 }
 
 function getBetType(bet) {
-  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "half_full_time", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "half_full_time", "exact_goals", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
 }
 
 function localizeTeamName(name) {
@@ -166,6 +166,12 @@ function getWinnerSelection(score) {
   const [home, away] = String(score || "").split("-").map(Number);
   if (!Number.isFinite(home) || !Number.isFinite(away)) return "";
   return home === away ? "draw" : home > away ? "home" : "away";
+}
+
+function getTotalGoals(score) {
+  const [home, away] = String(score || "").split("-").map(Number);
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return "";
+  return String(home + away);
 }
 
 async function fetchTournamentChampion() {
@@ -222,10 +228,12 @@ async function settlePendingBets(firestore) {
         ? (selection === bet.champion ? "win" : "loss")
         : bet.betType === "half_full_time"
           ? (selection === halfFullTimeSelection ? "win" : "loss")
+        : bet.betType === "exact_goals"
+          ? (selection === getTotalGoals(regulationScore) ? "win" : "loss")
         : ["match_winner", "half_time_winner"].includes(bet.betType)
           ? (selection === getWinnerSelection(settledScore) ? "win" : "loss")
           : (bet.predictedScore === settledScore ? "win" : "loss");
-      const displaySettledScore = bet.betType === "half_full_time" ? `${halfTimeScore} / ${regulationScore}` : settledScore;
+      const displaySettledScore = bet.betType === "half_full_time" ? `${halfTimeScore} / ${regulationScore}` : bet.betType === "exact_goals" ? getTotalGoals(regulationScore) : settledScore;
       const settlementFields = bet.betType === "tournament_champion"
         ? { settledSelection: bet.champion, resultProvider: "ESPN" }
         : { settledScore: displaySettledScore, resultProvider: provider };

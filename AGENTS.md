@@ -27,23 +27,23 @@
 - 「填表日期」是實際建立紀錄的本地日期，由系統自動產生，使用者不可手動選擇。
 - 「比賽日期」來自所選賽事的真實開賽時間，用於場次分組及比分分布統計。
 - 同一場比賽的統計應優先依穩定的 `matchId` 合併；不能只依使用者曾經填錯的日期或隊名字串分類。
-- `betType` 目前支援 `correct_score`、`half_time_correct_score`、`match_winner`、`half_time_winner`、`half_full_time`、`tournament_champion`。正確比分與上半場波膽必須拆成主隊、客隊兩個數值欄位；全場與上半場獨贏以 `selection` 儲存 `home`、`draw` 或 `away`，半/全場以 `selection` 儲存 `半場/全場`（例如 `home/draw`），其他玩法也以 `selection` 儲存選擇，不能把所有玩法硬轉成比分。
+- `betType` 目前支援 `correct_score`、`half_time_correct_score`、`match_winner`、`half_time_winner`、`half_full_time`、`exact_goals`、`tournament_champion`。正確比分與上半場波膽必須拆成主隊、客隊兩個數值欄位；全場與上半場獨贏以 `selection` 儲存 `home`、`draw` 或 `away`，半/全場以 `selection` 儲存 `半場/全場`（例如 `home/draw`），準確進球數以 `selection` 儲存正規時間總進球數字串（例如 `4`），其他玩法也以 `selection` 儲存選擇，不能把所有玩法硬轉成比分。
 - 新增下一筆紀錄時，常用欄位應保留上一筆內容，方便連續輸入大量投注。
 - 金額計算要處理浮點誤差並以貨幣精度顯示。
 
 ## 每日注單匯入流程
 
 - 張韡會不定期直接在對話貼上投注網站的純文字注單，並要求 agent 協助新增；若未另外指定成員，這類由張韡貼出的本人注單一律登記為 `Wei`。
-- 目前已實際驗證成功的正式新增方式，是使用本機 Firebase CLI 的登入狀態取得 OAuth token，再透過 Firestore REST API 寫入 `bets/{recordId}`；不要使用過期的 access token 快取，也不要把服務帳號、存取 token 或其他憑證寫入 Git。
+- 目前已 SOP 化的正式新增方式，是把注單整理成 JSON 後執行 `node scripts/import-daily-bets.js <json>` 先 dry-run，再執行 `node scripts/import-daily-bets.js <json> --apply` 寫入。腳本會使用本機 Firebase CLI 的登入狀態取得 OAuth token，透過 Firestore REST API 寫入 `bets/{recordId}`；不要使用過期的 access token 快取，也不要把服務帳號、存取 token 或其他憑證寫入 Git。
 - 執行前先確認 Firebase CLI 已登入正確帳號與專案：帳號應為 `k35082005@gmail.com`，專案應為 `fifa2026-53511`。若直接讀 `~/.config/configstore/firebase-tools.json` 裡的 `access_token` 遇到 Firestore `ACCESS_TOKEN_TYPE_UNSUPPORTED`，改用 `firebase-tools/lib/auth.js` 的 `getAccessToken(refresh_token, loginScopes)` 重新換 token。
-- 日常少量新增（例如使用者貼 5～20 張注單）可直接用 Firestore REST `documents:commit`。寫入前必須先用來源投注 ID 檢查 `bets/ticket-{投注ID}` 是否已存在；存在則停止或略過，不可重複新增。
-- 新建立的注單文件 ID 目前採用 `ticket-{來源投注ID}`，例如 `ticket-5350801780626462`。文件欄位至少包含：`id`、`member`、`memberUid`、`memberEmail`、`createdAt`、`createdDate`、`matchDate`、`date`、`match`、`matchId`、`amount`、`odds`、`result`、`predictedHome`、`predictedAway`、`note`。
+- 日常少量新增（例如使用者貼 5～20 張注單）優先使用 `scripts/import-daily-bets.js`，不要在新視窗重新發明匯入方式。寫入前腳本必須先用來源投注 ID 檢查 `bets/ticket-{投注ID}` 是否已存在；存在則停止，不可重複新增。
+- 新建立的注單文件 ID 目前採用 `ticket-{來源投注ID}`，例如 `ticket-5350801780626462`。文件欄位至少包含：`id`、`member`、`memberUid`、`memberEmail`、`createdAt`、`createdDate`、`betType`、`settlementRule`、`matchDate`、`date`、`match`、`matchId`、`homeCode`、`awayCode`、`amount`、`odds`、`result`、`selection`、`note`；比分玩法另需包含 `predictedHome`、`predictedAway`。
 - 時間欄位規則：投注網站貼出的 `(GMT+8)` 時間要轉成 UTC ISO 字串寫入 `createdAt`，例如 `2026-07-09 20:36:33(GMT+8)` 寫成 `2026-07-09T12:36:33.000Z`；`createdDate` 保留台灣本地日期 `2026-07-09`；比賽開賽日期寫入 `matchDate` 與 `date`，例如 `2026-07-10`。
 - `member` 若是張韡本人，固定寫 `Wei`，`memberUid` 固定寫 `qnPcedb81rXsq5o6BjMS4FiqycZ2`，`memberEmail` 固定寫 `k35082005@gmail.com`。其他已知成員 UID／email 依本文件「使用者與角色」或 `app.js` 的成員設定核對，不可只憑暱稱猜。
-- `note` 寫原始預測比分字串（例如 `2-1`），並同步拆成 `predictedHome: 2`、`predictedAway: 1`。尚未開獎的新注單 `result` 一律寫 `pending`。`matchId` 若目前無法從既有資料可靠取得，可以先寫空字串；不要自造看似正式的 `matchId`。
+- 比分玩法的 `note` 寫原始預測比分字串（例如 `2-1`），並同步拆成 `predictedHome: 2`、`predictedAway: 1`。非比分玩法以 `selection` 儲存正式選項，例如半/全場 `阿根廷/平局` 在 `英格蘭 VS 阿根廷` 應存成 `away/draw`。尚未開獎的新注單 `result` 一律寫 `pending`。`matchId` 應優先由腳本查 ESPN scoreboard 補入；若目前無法可靠取得才可先空字串，不要自造看似正式的 `matchId`。
 - 寫入後必須逐張 read back 驗證 `bets/ticket-{投注ID}` 已存在，並向使用者回報新增筆數、總下注額、比賽、票號與狀態。
 - 若一次要處理大量混合成員注單，先用票號查 Firestore。若票號不存在，再用「同場次、比分、賠率、下注時間批次、既有成員紀錄」交叉比對；遇到同比分同賠率的重複注單，不可只因內容相同就判斷是同一人，必須向使用者標示不確定處或取得更多上下文。
-- `scripts/import-daily-bets.js` 若存在，可作為未來批次工具，但只有在確認它的文件 ID、欄位名稱、冪等邏輯與上述正式資料格式一致後才使用。若腳本仍使用 `sourceBetId`、`rg-{sourceBetId}` 或其他舊格式，不能直接拿來寫正式 Firestore。
+- `scripts/import-daily-bets.js` 是日常匯入 SOP 工具，必須維持文件 ID `ticket-{sourceBetId}`、dry-run 預設、`--apply` 寫入、重複票號拒絕、ESPN `matchId` 對齊、read back 驗證。若未來修改此腳本，先用 dry-run 與少量測試核對欄位，不可退回 `rg-{sourceBetId}` 或只支援比分的舊格式。
 - 每筆取用欄位：注單編號／來源投注 ID、玩法、預測比分、賠率、主客隊、開賽時間與下注金額。畫面最後一欄的可贏金額僅供核對，不可誤填成下注金額或派彩；尚未開賽且沒有賽果的注單保持未開獎。
 - 批次開始前先讀取 Firestore 目前總筆數；匯入後總筆數應只增加實際新增筆數，並核對每個來源投注 ID、場次、比分、賠率、金額、比賽日期與文件 ID。
 - 來源投注 ID 才是判斷兩張原始注單是否為不同投注的最高優先依據。同一場次、比分、賠率與金額完全相同，只要來源投注 ID 不同，就仍是兩筆真實投注；網站跳出重複紀錄確認時應保留兩筆。若來源投注 ID 相同，則視為同一張注單，不可重複新增。
@@ -52,7 +52,7 @@
 
 - 賽程與賽果主要取自 ESPN 世界盃 scoreboard API；只有 ESPN 對特定日期讀取失敗時，才以 OpenLigaDB 明確標示的正規時間結果備援。
 - 下拉選單依選定賽事日期載入比賽，並清楚標示已結束或未開賽。
-- 正確比分與全場獨贏只判定正規時間比分／勝平負，不包含延長賽與 PK 大戰；上半場波膽與上半場獨贏只依 ESPN 可驗證的上半場比分／勝平負結算；半/全場依 ESPN 可驗證的上半場勝平負與正規時間勝平負共同判定；冠軍單在決賽正式完成後，以 ESPN 標示的晉級／勝方判定。
+- 正確比分、全場獨贏與準確進球數只判定正規時間比分／勝平負／總進球數，不包含延長賽與 PK 大戰；上半場波膽與上半場獨贏只依 ESPN 可驗證的上半場比分／勝平負結算；半/全場依 ESPN 可驗證的上半場勝平負與正規時間勝平負共同判定；冠軍單在決賽正式完成後，以 ESPN 標示的晉級／勝方判定。
 - 尚未正式結束或無可靠正規時間比分的賽事，不得提早結算。
 - 預測比分與正規時間比分完全一致才算贏；否則算輸。
 - 派彩與淨輸贏必須沿用網站既有定義。修改計算前，先以實際投注案例驗算，不可自行重新解釋欄位名稱。

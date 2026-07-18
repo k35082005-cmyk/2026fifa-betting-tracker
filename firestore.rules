@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.uid == 'qnPcedb81rXsq5o6BjMS4FiqycZ2';
+    }
+
+    function isValidSharedDocument() {
+      return request.resource.data.keys().hasOnly(['records', 'updatedAt'])
+        && request.resource.data.records is list
+        && request.resource.data.records.size() <= 500
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function isValidBet(betId) {
+      return request.resource.data.keys().hasAll([
+          'id', 'member', 'match', 'amount', 'odds', 'result', 'note'
+        ])
+        && request.resource.data.id == betId
+        && request.resource.data.member is string
+        && request.resource.data.match is string
+        && request.resource.data.amount is number
+        && request.resource.data.odds is number
+        && request.resource.data.result in ['pending', 'win', 'loss'];
+    }
+
+    // Legacy shared data is retained as a read-only migration backup.
+    match /betRecords/shared {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() && isValidSharedDocument();
+      allow delete: if isAdmin();
+    }
+
+    match /bets/{betId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && isValidBet(betId)
+        && request.resource.data.memberUid == request.auth.uid;
+      allow update: if isValidBet(betId)
+        && (
+          isAdmin()
+          || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'result', 'settledScore', 'settledAt', 'resultProvider',
+              'matchId', 'match', 'matchDate', 'date', 'alignedAt',
+              'homeCode', 'awayCode',
+              'createdDate', 'predictedHome', 'predictedAway', 'note'
+            ]))
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /settlements/{settlementId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && request.resource.data.id == settlementId
+        && request.resource.data.periodStart is string
+        && request.resource.data.periodEnd is string
+        && request.resource.data.recordIds is list
+        && request.resource.data.recordCount is int
+        && request.resource.data.members is list
+        && request.resource.data.totals is map
+        && request.resource.data.settledAt == request.time
+        && request.resource.data.settledByUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /auditLogs/{auditId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+          'id', 'action', 'actorUid', 'actorName', 'occurredAt'
+        ])
+        && request.resource.data.id == auditId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.action in [
+          'create', 'update', 'delete', 'schedule_sync',
+          'foreground_settle', 'legacy_migration', 'create_settlement',
+          'admin_correction'
+        ]
+        && request.resource.data.occurredAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /maintenanceRuns/{runId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /personalHistoryBets/{betId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.id == betId
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.betType in ['correct_score', 'half_time_correct_score', 'match_winner', 'half_time_winner', 'half_full_time', 'exact_goals', 'tournament_champion']
+        && request.resource.data.amount is number
+        && request.resource.data.odds is number
+        && request.resource.data.result in ['win', 'loss', 'pending'];
+      allow delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -2,6 +2,9 @@
   "name": "2026fifa-betting-tracker",
   "private": true,
   "version": "1.0.0",
+  "scripts": {
+    "import:bets": "node scripts/import-daily-bets.js"
+  },
   "engines": {
     "node": "24.x"
   },

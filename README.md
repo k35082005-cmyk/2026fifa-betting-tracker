@@ -42,6 +42,63 @@ vercel dev
 vercel --prod --yes
 ```
 
+## 每日注單匯入 SOP
+
+少量日常注單固定使用 Firebase CLI 登入狀態與 `scripts/import-daily-bets.js`，不要再臨時改寫 Firestore REST 腳本。
+
+1. 確認 Firebase CLI 登入帳號：
+
+```bash
+firebase login:list
+```
+
+應顯示 `k35082005@gmail.com`。
+
+2. 將注單整理成 JSON，例如：
+
+```json
+{
+  "bets": [
+    {
+      "sourceBetId": "5352364649562276",
+      "placedAt": "2026-07-15 21:19:09(GMT+8)",
+      "playType": "全場波膽",
+      "prediction": "3-3",
+      "match": "英格蘭 VS 阿根廷",
+      "kickoffAt": "2026-07-16 03:00(GMT+8)",
+      "odds": 61,
+      "amount": 50
+    },
+    {
+      "sourceBetId": "5352331439796823",
+      "placedAt": "2026-07-15 18:14:39(GMT+8)",
+      "playType": "半/全場",
+      "prediction": "阿根廷/平局",
+      "match": "英格蘭 VS 阿根廷",
+      "kickoffAt": "2026-07-16 03:00(GMT+8)",
+      "odds": 18.5,
+      "amount": 50
+    }
+  ]
+}
+```
+
+`playType` 可用中文或正式 `betType`：`correct_score`、`half_time_correct_score`、`match_winner`、`half_time_winner`、`half_full_time`、`exact_goals`、`tournament_champion`。腳本會用 ESPN 依比賽日期與隊伍補 `matchId`，文件 ID 固定為 `ticket-{sourceBetId}`。
+
+3. 先 dry-run：
+
+```bash
+npm run import:bets -- path/to/bets.json
+```
+
+4. 確認 `createRecords`、總金額、票號與玩法正確後才寫入：
+
+```bash
+npm run import:bets -- path/to/bets.json --apply
+```
+
+腳本會拒絕新增已存在的票號，寫入後會 read back 驗證新增筆數與欄位。
+
 ## GitHub Actions 密鑰
 
 Repository Actions secret 需設定：
