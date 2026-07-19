@@ -14,6 +14,9 @@ const DATABASE_ID = "(default)";
 const DOCUMENTS_PATH = `projects/${PROJECT_ID}/databases/${DATABASE_ID}/documents`;
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/${DOCUMENTS_PATH}`;
 const ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const TOURNAMENT_CHAMPION_MATCH_ID = "tournament:2026-fifa-world-cup";
+const TOURNAMENT_CHAMPION_MATCH = "2026 FIFA 世界盃冠軍";
+const TOURNAMENT_FINAL_DATE = "2026-07-19";
 const VALID_BET_TYPES = new Set([
   "correct_score",
   "half_time_correct_score",
@@ -21,6 +24,7 @@ const VALID_BET_TYPES = new Set([
   "half_time_winner",
   "half_full_time",
   "exact_goals",
+  "over_under",
   "tournament_champion",
 ]);
 
@@ -157,6 +161,9 @@ function normalizeBetType(value) {
     "半全場": "half_full_time",
     EXACT_GOALS: "exact_goals",
     "準確進球數": "exact_goals",
+    OVER_UNDER: "over_under",
+    "全場大小": "over_under",
+    "大小": "over_under",
     TOURNAMENT_CHAMPION: "tournament_champion",
     "冠軍": "tournament_champion",
   };
@@ -205,6 +212,14 @@ function normalizeSelection(bet, betType, fixture) {
     if (!/^\d+$/.test(goals)) throw new Error(`Invalid exact goals selection for ${bet.sourceBetId}: ${raw}`);
     return { selection: goals, note: goals };
   }
+  if (betType === "over_under") {
+    const match = String(raw || "").normalize("NFKC").trim().match(/^(大|小|over|under)\s*([0-9]+(?:\.5)?)$/i);
+    if (!match) throw new Error(`Invalid over/under selection for ${bet.sourceBetId}: ${raw}`);
+    const side = ["大", "over"].includes(match[1].toLowerCase()) ? "over" : "under";
+    const line = Number(match[2]);
+    if (!Number.isFinite(line) || line % 1 !== 0.5) throw new Error(`Over/under line must end in .5 for ${bet.sourceBetId}: ${raw}`);
+    return { selection: `${side}:${line}`, note: `${side === "over" ? "大" : "小"} ${line}`, goalLine: line };
+  }
   return { selection: String(raw || "").trim(), note: String(raw || "").trim() };
 }
 
@@ -215,6 +230,7 @@ function getSettlementRule(betType) {
   if (betType === "half_time_winner") return "half_time_winner";
   if (betType === "half_full_time") return "half_full_time";
   if (betType === "exact_goals") return "regulation_total_goals";
+  if (betType === "over_under") return "regulation_total_goals_over_under";
   return "tournament_champion";
 }
 
@@ -410,10 +426,20 @@ async function buildRecords(input) {
   for (const bet of input.bets) {
     const sourceBetId = String(bet.sourceBetId);
     const betType = normalizeBetType(bet.betType || bet.playType);
-    const matchDate = parseMatchDate(bet);
+    const matchDate = betType === "tournament_champion" ? TOURNAMENT_FINAL_DATE : parseMatchDate(bet);
     const fixtureKey = `${matchDate}|${bet.match}|${bet.matchId || ""}`;
     if (!fixtureCache.has(fixtureKey)) {
-      fixtureCache.set(fixtureKey, await resolveFixture({ ...bet, matchDate }));
+      fixtureCache.set(fixtureKey, betType === "tournament_champion"
+        ? {
+            matchId: TOURNAMENT_CHAMPION_MATCH_ID,
+            match: TOURNAMENT_CHAMPION_MATCH,
+            homeName: "",
+            awayName: "",
+            homeCode: "",
+            awayCode: "",
+            matchDate,
+          }
+        : await resolveFixture({ ...bet, matchDate }));
     }
     const fixture = fixtureCache.get(fixtureKey);
     const placedAt = parseTaipeiTimestamp(bet.placedAt, `placedAt for ${sourceBetId}`);

@@ -155,7 +155,7 @@ function getPredictedScore(bet) {
 }
 
 function getBetType(bet) {
-  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "half_full_time", "exact_goals", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
+  return ["correct_score", "half_time_correct_score", "match_winner", "half_time_winner", "half_full_time", "exact_goals", "over_under", "tournament_champion"].includes(bet.betType) ? bet.betType : "correct_score";
 }
 
 function localizeTeamName(name) {
@@ -172,6 +172,13 @@ function getTotalGoals(score) {
   const [home, away] = String(score || "").split("-").map(Number);
   if (!Number.isFinite(home) || !Number.isFinite(away)) return "";
   return String(home + away);
+}
+
+function isOverUnderWinner(selection, totalGoals) {
+  const match = String(selection || "").trim().match(/^(over|under):([0-9]+(?:\.5)?)$/);
+  if (!match || !Number.isFinite(Number(totalGoals))) return false;
+  const line = Number(match[2]);
+  return match[1] === "over" ? Number(totalGoals) > line : Number(totalGoals) < line;
 }
 
 async function fetchTournamentChampion() {
@@ -230,10 +237,12 @@ async function settlePendingBets(firestore) {
           ? (selection === halfFullTimeSelection ? "win" : "loss")
         : bet.betType === "exact_goals"
           ? (selection === getTotalGoals(regulationScore) ? "win" : "loss")
+        : bet.betType === "over_under"
+          ? (isOverUnderWinner(selection, getTotalGoals(regulationScore)) ? "win" : "loss")
         : ["match_winner", "half_time_winner"].includes(bet.betType)
           ? (selection === getWinnerSelection(settledScore) ? "win" : "loss")
           : (bet.predictedScore === settledScore ? "win" : "loss");
-      const displaySettledScore = bet.betType === "half_full_time" ? `${halfTimeScore} / ${regulationScore}` : bet.betType === "exact_goals" ? getTotalGoals(regulationScore) : settledScore;
+      const displaySettledScore = bet.betType === "half_full_time" ? `${halfTimeScore} / ${regulationScore}` : ["exact_goals", "over_under"].includes(bet.betType) ? getTotalGoals(regulationScore) : settledScore;
       const settlementFields = bet.betType === "tournament_champion"
         ? { settledSelection: bet.champion, resultProvider: "ESPN" }
         : { settledScore: displaySettledScore, resultProvider: provider };
@@ -319,4 +328,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { calculateRegulationScore, calculateHalfTimeScore, fetchOpenLigaResults, getPredictedScore, normalizeTeamCode };
+module.exports = { calculateRegulationScore, calculateHalfTimeScore, fetchOpenLigaResults, getPredictedScore, getTotalGoals, isOverUnderWinner, normalizeTeamCode };

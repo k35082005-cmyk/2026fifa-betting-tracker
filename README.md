@@ -83,7 +83,7 @@ firebase login:list
 }
 ```
 
-`playType` 可用中文或正式 `betType`：`correct_score`、`half_time_correct_score`、`match_winner`、`half_time_winner`、`half_full_time`、`exact_goals`、`tournament_champion`。腳本會用 ESPN 依比賽日期與隊伍補 `matchId`，文件 ID 固定為 `ticket-{sourceBetId}`。
+`playType` 可用中文或正式 `betType`：`correct_score`、`half_time_correct_score`、`match_winner`、`half_time_winner`、`half_full_time`、`exact_goals`、`over_under`、`tournament_champion`。全場大小以 `大 2.5` 或 `小 2.5` 格式匯入，只接受半球盤，並以正規時間總進球數判定。腳本會用 ESPN 依比賽日期與隊伍補 `matchId`，文件 ID 固定為 `ticket-{sourceBetId}`。
 
 3. 先 dry-run：
 
